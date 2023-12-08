@@ -15,7 +15,7 @@ Rust multi-platform application engine
 sunset = { path = "../sunset" }
 ```
 
-7. Configure your main application and run the sunset state:
+6. Configure your main application and run the sunset state:
 ```Rust
 use state::State;
 use sunset::prelude::*;
@@ -32,4 +32,4 @@ fn main() {
 
 ```
 
-9. To run your app open a terminal in your project's folder and type `cargo run`
+7. To run your app open a terminal in your project's folder and type `cargo run`
