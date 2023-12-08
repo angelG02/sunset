@@ -7,6 +7,8 @@ Rust multi-platform application engine
 3. Get latest version of sunset engine and place it next to your newly created project:
 ![image](https://github.com/angelG02/sunset/assets/112871889/3d17bc11-59e3-42e8-96b3-76aad7012444)
 
+
+
 5. Add Sunset engine to your project's dependencies (in Cargo.toml inside your newly created project):
 ```Toml
 [dependencies]
