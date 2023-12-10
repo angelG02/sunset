@@ -1,7 +1,7 @@
-use crate::core::state::State;
+use crate::core::{events::CommandEvent, state::State};
 use std::{collections::VecDeque, fmt::Debug};
-use winit::dpi::PhysicalSize;
 
+// TODO: Context needs to be defined in the app itself
 pub struct Context;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -9,24 +9,6 @@ pub type Task<T> = Box<dyn FnMut(&mut Context) -> T + Send + Sync>;
 
 #[cfg(target_arch = "wasm32")]
 pub type Task<T> = Box<dyn FnMut(Context) -> T + Send>;
-
-#[derive(Default, Debug, Clone)]
-pub struct NewWindowProps {
-    pub size: PhysicalSize<u32>,
-    pub name: String,
-    // Option<Decorations...icon...etc, etc>
-}
-
-#[derive(Debug, Clone)]
-pub enum CommandEvent {
-    OpenWindow(NewWindowProps),
-    CloseWindow(winit::window::WindowId),
-    Exit,
-    File(String),
-    FileNotFound,
-    FilePending(String),
-    None,
-}
 
 //#[derive(Reflect)]
 #[derive(PartialEq, Eq, Debug)]

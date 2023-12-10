@@ -1,6 +1,6 @@
 use tracing::{error, info};
 
-use crate::core::{app::*, command_queue::*, state::State};
+use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
 
 pub struct CLI {
     pub command_queue: CommandQueue,
@@ -45,9 +45,7 @@ impl App for CLI {
     fn init(&mut self, init_commands: Vec<Command>) {
         self.command_queue.add_commands(init_commands);
     }
-    fn add_command(&mut self, cmd: Command) {
-        self.command_queue.add_command(cmd);
-    }
+
     fn add_commands(&mut self, commands: Vec<Command>) {
         self.command_queue.add_commands(commands);
     }

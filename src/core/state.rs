@@ -6,7 +6,7 @@ use std::{
 use once_cell::sync::Lazy;
 use tracing::warn;
 
-use crate::core::{app::App, cli::run_cli, command_queue::CommandEvent};
+use crate::core::{app::App, cli::run_cli, events::CommandEvent};
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 
@@ -43,7 +43,7 @@ impl State {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
     pub fn run() {
-        let event_loop = State::init();
+        let _event_loop = State::init();
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {

@@ -3,7 +3,6 @@ use crate::core::command_queue::*;
 pub trait App {
     fn build(&self) {}
     fn init(&mut self, init_commands: Vec<Command>);
-    fn add_command(&mut self, cmd: Command);
     fn add_commands(&mut self, commands: Vec<Command>);
     fn update(&mut self);
     fn process_command(&mut self, cmd: Command);
