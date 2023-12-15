@@ -6,13 +6,19 @@ use std::{
 use once_cell::sync::Lazy;
 use tracing::warn;
 
-use crate::core::{app::App, cli::run_cli, events::CommandEvent};
+use crate::core::{
+    app::App,
+    cli::run_cli,
+    command_queue::{Command, CommandQueue},
+    events::CommandEvent,
+};
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 
 pub struct State {
     pub running: bool,
     pub apps: HashMap<String, Box<dyn App>>,
+    pub command_queue: CommandQueue,
     pub windows: HashMap<winit::window::WindowId, winit::window::Window>,
     pub event_loop_proxy: Option<winit::event_loop::EventLoopProxy<CommandEvent>>,
 }
@@ -34,10 +40,20 @@ impl State {
     }
 
     fn update() {
-        let apps = &mut State::write().apps;
+        let mut frame_commands: Vec<Command> = vec![];
+        {
+            let apps = &mut State::write().apps;
 
-        for app in apps.values_mut() {
-            app.update();
+            for app in apps.values_mut() {
+                frame_commands.append(&mut app.queue_commands());
+            }
+        }
+
+        {
+            State::write().command_queue.add_commands(frame_commands);
+        }
+        {
+            State::write().command_queue.execute();
         }
     }
 
@@ -84,6 +100,7 @@ impl Default for State {
             apps: HashMap::new(),
             windows: HashMap::new(),
             event_loop_proxy: None,
+            command_queue: CommandQueue::default(),
         }
     }
 }

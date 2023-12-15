@@ -5,7 +5,7 @@ use std::{collections::VecDeque, fmt::Debug};
 pub struct Context;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type Task<T> = Box<dyn FnMut(&mut Context) -> T + Send + Sync>;
+pub type Task<T> = Box<dyn FnMut() -> T + Send + Sync>;
 
 #[cfg(target_arch = "wasm32")]
 pub type Task<T> = Box<dyn FnMut(Context) -> T + Send>;
@@ -122,12 +122,12 @@ impl CommandQueue {
     }
 
     // TODO: Pass an RwLockGuard to all tasks?
-    pub fn execute(&mut self, ctx: &mut Context) {
+    pub fn execute(&mut self) {
         for _ in 0..self.commands.len() {
             let command = self.commands.pop_front();
             if let Some(command) = command {
                 if let Some(mut task) = command.task {
-                    let event = task(ctx);
+                    let event = task();
                     State::get_proxy()
                         .send_event(event)
                         .expect("Could not send event T-T");
