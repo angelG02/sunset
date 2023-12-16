@@ -8,7 +8,7 @@ pub struct Context;
 pub type Task<T> = Box<dyn FnMut() -> T + Send + Sync>;
 
 #[cfg(target_arch = "wasm32")]
-pub type Task<T> = Box<dyn FnMut(Context) -> T + Send>;
+pub type Task<T> = Box<dyn FnMut() -> T + Send>;
 
 //#[derive(Reflect)]
 #[derive(PartialEq, Eq, Debug)]

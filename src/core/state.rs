@@ -57,20 +57,6 @@ impl State {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-    pub fn run() {
-        let _event_loop = State::init();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            run_cli();
-        });
-
-        loop {
-            State::update();
-        }
-    }
-
     pub fn get_proxy() -> winit::event_loop::EventLoopProxy<CommandEvent> {
         State::read().event_loop_proxy.clone().unwrap()
     }
@@ -102,6 +88,20 @@ impl Default for State {
             event_loop_proxy: None,
             command_queue: CommandQueue::default(),
         }
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub fn run() {
+    let _event_loop = State::init();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || {
+        run_cli();
+    });
+
+    loop {
+        State::update();
     }
 }
 
