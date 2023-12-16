@@ -10,7 +10,6 @@ pub struct NewWindowProps {
 #[derive(Debug, Clone)]
 pub enum CommandEvent {
     OpenWindow(NewWindowProps),
-    CloseWindow(winit::window::WindowId),
     Exit,
     File(String),
     FileNotFound,

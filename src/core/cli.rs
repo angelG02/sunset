@@ -1,4 +1,5 @@
 use tracing::{error, info};
+use winit::event_loop::EventLoopWindowTarget;
 
 use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
 
@@ -32,9 +33,15 @@ impl CLI {
     }
 
     fn exit(&self) -> Option<Task<CommandEvent>> {
-        info!("Exiting...");
-        //State::write().running = false;
-        None
+        let cmd = move || {
+            let event = CommandEvent::Exit;
+
+            info!("{event:?}");
+
+            event
+        };
+
+        Some(Box::new(cmd))
     }
 
     fn unsupported(args: &str) -> Option<Task<CommandEvent>> {
@@ -54,6 +61,20 @@ impl App for CLI {
 
     fn process_command(&mut self, cmd: Command) {
         self.process_cli_command(cmd);
+    }
+
+    fn process_event(&mut self, event: &CommandEvent, elwt: &EventLoopWindowTarget<CommandEvent>) {
+        if let CommandEvent::Exit = event {
+            elwt.exit()
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

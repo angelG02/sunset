@@ -1,4 +1,4 @@
-use crate::core::{events::CommandEvent, state::State};
+use crate::core::events::CommandEvent;
 use std::{collections::VecDeque, fmt::Debug};
 
 // TODO: Context needs to be defined in the app itself
@@ -122,15 +122,13 @@ impl CommandQueue {
     }
 
     // TODO: Pass an RwLockGuard to all tasks?
-    pub fn execute(&mut self) {
+    pub fn execute(&mut self, elp: winit::event_loop::EventLoopProxy<CommandEvent>) {
         for _ in 0..self.commands.len() {
             let command = self.commands.pop_front();
             if let Some(command) = command {
                 if let Some(mut task) = command.task {
                     let event = task();
-                    State::get_proxy()
-                        .send_event(event)
-                        .expect("Could not send event T-T");
+                    elp.send_event(event).expect("Could not send event T-T");
                 }
             }
         }

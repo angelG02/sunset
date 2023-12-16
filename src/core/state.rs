@@ -5,12 +5,16 @@ use std::{
 
 use once_cell::sync::Lazy;
 use tracing::warn;
+use winit::event_loop::EventLoopProxy;
 
-use crate::core::{
-    app::App,
-    cli::run_cli,
-    command_queue::{Command, CommandQueue},
-    events::CommandEvent,
+use crate::{
+    core::{
+        app::App,
+        cli::run_cli,
+        command_queue::{Command, CommandQueue},
+        events::CommandEvent,
+    },
+    window::windower::Windower,
 };
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
@@ -19,7 +23,6 @@ pub struct State {
     pub running: bool,
     pub apps: HashMap<String, Box<dyn App>>,
     pub command_queue: CommandQueue,
-    pub windows: HashMap<winit::window::WindowId, winit::window::Window>,
     pub event_loop_proxy: Option<winit::event_loop::EventLoopProxy<CommandEvent>>,
 }
 
@@ -53,7 +56,12 @@ impl State {
             State::write().command_queue.add_commands(frame_commands);
         }
         {
-            State::write().command_queue.execute();
+            let elp: EventLoopProxy<CommandEvent>;
+            {
+                elp = State::get_proxy();
+            }
+            let mut state = State::write();
+            state.command_queue.execute(elp);
         }
     }
 
@@ -84,7 +92,6 @@ impl Default for State {
         State {
             running: true,
             apps: HashMap::new(),
-            windows: HashMap::new(),
             event_loop_proxy: None,
             command_queue: CommandQueue::default(),
         }
@@ -93,16 +100,49 @@ impl Default for State {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn run() {
-    let _event_loop = State::init();
+    let event_loop = State::init();
 
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || {
         run_cli();
     });
 
-    loop {
-        State::update();
-    }
+    event_loop
+        .run(move |event, elwt| {
+            if !State::read().running {
+                elwt.exit()
+            }
+            {
+                State::update();
+            }
+            elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+            match event {
+                winit::event::Event::WindowEvent { window_id, event } => match event {
+                    winit::event::WindowEvent::CloseRequested => {
+                        if let Some(windower) = State::write().apps.get_mut("Windower") {
+                            windower
+                                .as_any_mut()
+                                .downcast_mut::<Windower>()
+                                .expect("Could not downcast to Windower!")
+                                .windows
+                                .remove(&window_id);
+                        }
+                    }
+                    winit::event::WindowEvent::RedrawRequested => {}
+                    _ => {}
+                },
+                winit::event::Event::UserEvent(event) => {
+                    let apps = &mut State::write().apps;
+
+                    for app in apps.values_mut() {
+                        app.process_event(&event, elwt);
+                    }
+                }
+                _ => {}
+            }
+        })
+        .unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]
