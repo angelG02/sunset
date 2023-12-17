@@ -7,14 +7,11 @@ use once_cell::sync::Lazy;
 use tracing::warn;
 use winit::event_loop::EventLoopProxy;
 
-use crate::{
-    core::{
-        app::App,
-        cli::run_cli,
-        command_queue::{Command, CommandQueue},
-        events::CommandEvent,
-    },
-    window::windower::Windower,
+use crate::core::{
+    app::App,
+    cli::run_cli,
+    command_queue::{Command, CommandQueue},
+    events::CommandEvent,
 };
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
@@ -117,29 +114,10 @@ pub fn run() {
             }
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-            match event {
-                winit::event::Event::WindowEvent { window_id, event } => match event {
-                    winit::event::WindowEvent::CloseRequested => {
-                        if let Some(windower) = State::write().apps.get_mut("Windower") {
-                            windower
-                                .as_any_mut()
-                                .downcast_mut::<Windower>()
-                                .expect("Could not downcast to Windower!")
-                                .windows
-                                .remove(&window_id);
-                        }
-                    }
-                    winit::event::WindowEvent::RedrawRequested => {}
-                    _ => {}
-                },
-                winit::event::Event::UserEvent(event) => {
-                    let apps = &mut State::write().apps;
+            let apps = &mut State::write().apps;
 
-                    for app in apps.values_mut() {
-                        app.process_event(&event, elwt);
-                    }
-                }
-                _ => {}
+            for app in apps.values_mut() {
+                app.process_event(&event, elwt);
             }
         })
         .unwrap();

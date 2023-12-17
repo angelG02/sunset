@@ -116,8 +116,12 @@ impl App for Windower {
         self.process_window_command(cmd);
     }
 
-    fn process_event(&mut self, event: &CommandEvent, elwt: &EventLoopWindowTarget<CommandEvent>) {
-        if let CommandEvent::OpenWindow(props) = event {
+    fn process_event(
+        &mut self,
+        event: &winit::event::Event<CommandEvent>,
+        elwt: &EventLoopWindowTarget<CommandEvent>,
+    ) {
+        if let winit::event::Event::UserEvent(CommandEvent::OpenWindow(props)) = event {
             let window = winit::window::WindowBuilder::new()
                 .with_inner_size(winit::dpi::Size::Physical(props.size))
                 .with_title(props.name.clone())
@@ -134,6 +138,13 @@ impl App for Windower {
                 let window = self.windows.get(&win_id).unwrap();
                 append_canvas(window);
             }
+        }
+        if let winit::event::Event::WindowEvent {
+            window_id,
+            event: winit::event::WindowEvent::CloseRequested,
+        } = event
+        {
+            self.windows.remove(window_id);
         }
     }
 

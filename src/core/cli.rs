@@ -63,8 +63,12 @@ impl App for CLI {
         self.process_cli_command(cmd);
     }
 
-    fn process_event(&mut self, event: &CommandEvent, elwt: &EventLoopWindowTarget<CommandEvent>) {
-        if let CommandEvent::Exit = event {
+    fn process_event(
+        &mut self,
+        event: &winit::event::Event<CommandEvent>,
+        elwt: &EventLoopWindowTarget<CommandEvent>,
+    ) {
+        if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
             elwt.exit()
         }
     }
