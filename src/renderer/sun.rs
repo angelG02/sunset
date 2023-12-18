@@ -24,34 +24,22 @@ unsafe impl Send for Sun {}
 unsafe impl Sync for Sun {}
 
 impl Sun {
-    pub async fn create_viewport(&mut self, window: Arc<Window>) {
-        let vp_desc = ViewportDesc::new(
-            Arc::clone(&window),
-            wgpu::Color {
-                r: 105.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.0,
-            },
-            self.instance.as_ref().unwrap(),
-        );
+    pub async fn create_adapter(&mut self, surface: &wgpu::Surface) {
+        let adapter = self
+            .instance
+            .as_ref()
+            .unwrap()
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                // Request an adapter which can render to our surface
+                compatible_surface: Some(surface),
+                ..Default::default()
+            })
+            .await
+            .expect("Failed to find an appropriate adapter");
+        self.adapter = Some(adapter);
+    }
 
-        if self.adapter.is_none() {
-            let adapter = self
-                .instance
-                .as_ref()
-                .unwrap()
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    // Request an adapter which can render to our surface
-                    compatible_surface: Some(&vp_desc.surface),
-                    ..Default::default()
-                })
-                .await
-                .expect("Failed to find an appropriate adapter");
-
-            self.adapter = Some(adapter);
-        }
-
+    pub async fn create_device(&mut self) {
         // Create the logical device and command queue
         let (device, queue) = self
             .adapter
@@ -70,6 +58,26 @@ impl Sun {
 
         self.device = Some(device);
         self.queue = Some(queue);
+    }
+
+    pub async fn create_viewport(&mut self, window: Arc<Window>) {
+        let vp_desc = ViewportDesc::new(
+            Arc::clone(&window),
+            wgpu::Color {
+                r: 105.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.0,
+            },
+            self.instance.as_ref().unwrap(),
+        );
+
+        if self.adapter.is_none() {
+            self.create_adapter(&vp_desc.surface).await;
+        }
+        if self.device.is_none() {
+            self.create_device().await;
+        }
 
         let vp = vp_desc.build(
             self.adapter.as_ref().unwrap(),
