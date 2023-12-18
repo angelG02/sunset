@@ -1,10 +1,13 @@
 use tracing::{error, info};
+use winit::event_loop::EventLoopWindowTarget;
 
-use crate::core::{app::*, command_queue::*, state::State};
+use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
+
+pub struct CLIContext;
 
 pub struct CLI {
-    pub command_queue: CommandQueue,
-    pub context: Context,
+    pub commands: Vec<Command>,
+    pub context: CLIContext,
 }
 
 impl CLI {
@@ -13,7 +16,7 @@ impl CLI {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         let task = match args.to_ascii_lowercase().as_str() {
-            "exit" => CLI::exit(),
+            "exit" => CLI::exit(self),
             "load" => CLI::load_dynamic(vec_args[1]),
             _ => CLI::unsupported(args.as_str()),
         };
@@ -21,7 +24,7 @@ impl CLI {
         cmd.task = task;
         cmd.args = Some(args);
 
-        self.command_queue.add_command(cmd);
+        self.commands.push(cmd);
     }
 
     // TODO: load dyn lib
@@ -29,10 +32,16 @@ impl CLI {
         None
     }
 
-    fn exit() -> Option<Task<CommandEvent>> {
-        info!("Exiting...");
-        //State::write().running = false;
-        None
+    fn exit(&self) -> Option<Task<CommandEvent>> {
+        let cmd = move || {
+            let event = CommandEvent::Exit;
+
+            info!("{event:?}");
+
+            event
+        };
+
+        Some(Box::new(cmd))
     }
 
     fn unsupported(args: &str) -> Option<Task<CommandEvent>> {
@@ -42,20 +51,34 @@ impl CLI {
 }
 
 impl App for CLI {
-    fn init(&mut self, init_commands: Vec<Command>) {
-        self.command_queue.add_commands(init_commands);
+    fn init(&mut self, mut init_commands: Vec<Command>) {
+        self.commands.append(&mut init_commands);
     }
-    fn add_command(&mut self, cmd: Command) {
-        self.command_queue.add_command(cmd);
+
+    fn queue_commands(&mut self) -> Vec<Command> {
+        self.commands.drain(0..self.commands.len()).collect()
     }
-    fn add_commands(&mut self, commands: Vec<Command>) {
-        self.command_queue.add_commands(commands);
-    }
-    fn update(&mut self) {
-        self.command_queue.execute(&mut self.context);
-    }
+
     fn process_command(&mut self, cmd: Command) {
         self.process_cli_command(cmd);
+    }
+
+    fn process_event(
+        &mut self,
+        event: &winit::event::Event<CommandEvent>,
+        elwt: &EventLoopWindowTarget<CommandEvent>,
+    ) {
+        if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
+            elwt.exit()
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -64,7 +87,6 @@ pub fn get_cli_command() -> Command {
 
     buffer.clear();
 
-    info!("Please enter command! (type 'help' for list of commands)");
     std::io::stdin()
         .read_line(&mut buffer)
         .expect("Could not read provided command!");

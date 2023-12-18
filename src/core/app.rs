@@ -1,33 +1,21 @@
+use std::any::Any;
+
+use winit::event_loop::EventLoopWindowTarget;
+
 use crate::core::command_queue::*;
+
+use super::events::CommandEvent;
 
 pub trait App {
     fn build(&self) {}
     fn init(&mut self, init_commands: Vec<Command>);
-    fn add_command(&mut self, cmd: Command);
-    fn add_commands(&mut self, commands: Vec<Command>);
-    fn update(&mut self);
+    fn queue_commands(&mut self /*schedule: Schedule, */) -> Vec<Command>;
     fn process_command(&mut self, cmd: Command);
+    fn process_event(
+        &mut self,
+        event: &winit::event::Event<CommandEvent>,
+        elwt: &EventLoopWindowTarget<CommandEvent>,
+    );
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
-
-// pub struct App {
-//     pub cmd_queue: CommandQueue,
-//     pub ctx: Context,
-// }
-
-// impl App {
-//     pub fn init(&mut self, init_commands: Vec<Command>) {
-//         self.cmd_queue.add_commands(init_commands);
-//     }
-
-//     pub fn add_command(&mut self, cmd: Command) {
-//         self.cmd_queue.add_command(cmd);
-//     }
-
-//     pub fn add_commands(&mut self, commands: Vec<Command>) {
-//         self.cmd_queue.add_commands(commands);
-//     }
-
-//     pub fn update(&mut self) {
-//         self.cmd_queue.execute(&mut self.ctx);
-//     }
-// }

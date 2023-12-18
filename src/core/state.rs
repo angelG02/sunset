@@ -4,16 +4,23 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use tracing::warn;
+use tracing::{info, warn};
+use winit::event_loop::EventLoopProxy;
 
-use crate::core::{app::App, cli::run_cli, command_queue::CommandEvent};
+use crate::core::{
+    app::App,
+    cli::run_cli,
+    command_queue::{Command, CommandQueue},
+    default_apps::default_apps,
+    events::CommandEvent,
+};
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 
 pub struct State {
     pub running: bool,
     pub apps: HashMap<String, Box<dyn App>>,
-    pub windows: HashMap<winit::window::WindowId, winit::window::Window>,
+    pub command_queue: CommandQueue,
     pub event_loop_proxy: Option<winit::event_loop::EventLoopProxy<CommandEvent>>,
 }
 
@@ -30,28 +37,35 @@ impl State {
             state_lock.event_loop_proxy = Some(event_loop_proxy);
         }
 
+        let default_apps = default_apps();
+
+        for app in default_apps {
+            State::insert_app(app.0.as_str(), app.1);
+        }
+
         event_loop
     }
 
     fn update() {
-        let apps = &mut State::write().apps;
+        let mut frame_commands: Vec<Command> = vec![];
+        {
+            let apps = &mut State::write().apps;
 
-        for app in apps.values_mut() {
-            app.update();
+            for app in apps.values_mut() {
+                frame_commands.append(&mut app.queue_commands());
+            }
         }
-    }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-    pub fn run() {
-        let event_loop = State::init();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            run_cli();
-        });
-
-        loop {
-            State::update();
+        {
+            State::write().command_queue.add_commands(frame_commands);
+        }
+        {
+            let elp: EventLoopProxy<CommandEvent>;
+            {
+                elp = State::get_proxy();
+            }
+            let mut state = State::write();
+            state.command_queue.execute(elp);
         }
     }
 
@@ -82,10 +96,40 @@ impl Default for State {
         State {
             running: true,
             apps: HashMap::new(),
-            windows: HashMap::new(),
             event_loop_proxy: None,
+            command_queue: CommandQueue::default(),
         }
     }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub fn run() {
+    let event_loop = State::init();
+
+    info!("Initialzied State!");
+
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || {
+        run_cli();
+    });
+
+    event_loop
+        .run(move |event, elwt| {
+            if !State::read().running {
+                elwt.exit()
+            }
+            {
+                State::update();
+            }
+            elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+            let apps = &mut State::write().apps;
+
+            for app in apps.values_mut() {
+                app.process_event(&event, elwt);
+            }
+        })
+        .unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -108,6 +152,7 @@ fn init_trace() {
         .with_file(false)
         .with_line_number(true)
         .without_time()
+        .with_thread_ids(true)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

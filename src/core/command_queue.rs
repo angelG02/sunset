@@ -1,32 +1,14 @@
-use crate::core::state::State;
+use crate::core::events::CommandEvent;
 use std::{collections::VecDeque, fmt::Debug};
-use winit::dpi::PhysicalSize;
 
+// TODO: Context needs to be defined in the app itself
 pub struct Context;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type Task<T> = Box<dyn FnMut(&mut Context) -> T + Send + Sync>;
+pub type Task<T> = Box<dyn FnMut() -> T + Send + Sync>;
 
 #[cfg(target_arch = "wasm32")]
-pub type Task<T> = Box<dyn FnMut(Context) -> T + Send>;
-
-#[derive(Default, Debug, Clone)]
-pub struct NewWindowProps {
-    pub size: PhysicalSize<u32>,
-    pub name: String,
-    // Option<Decorations...icon...etc, etc>
-}
-
-#[derive(Debug, Clone)]
-pub enum CommandEvent {
-    OpenWindow(NewWindowProps),
-    CloseWindow(winit::window::WindowId),
-    Exit,
-    File(String),
-    FileNotFound,
-    FilePending(String),
-    None,
-}
+pub type Task<T> = Box<dyn FnMut() -> T + Send>;
 
 //#[derive(Reflect)]
 #[derive(PartialEq, Eq, Debug)]
@@ -140,15 +122,13 @@ impl CommandQueue {
     }
 
     // TODO: Pass an RwLockGuard to all tasks?
-    pub fn execute(&mut self, ctx: &mut Context) {
+    pub fn execute(&mut self, elp: winit::event_loop::EventLoopProxy<CommandEvent>) {
         for _ in 0..self.commands.len() {
             let command = self.commands.pop_front();
             if let Some(command) = command {
                 if let Some(mut task) = command.task {
-                    let event = task(ctx);
-                    State::get_proxy()
-                        .send_event(event)
-                        .expect("Could not send event T-T");
+                    let event = task();
+                    elp.send_event(event).expect("Could not send event T-T");
                 }
             }
         }
