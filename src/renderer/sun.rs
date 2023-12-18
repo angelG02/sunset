@@ -159,6 +159,9 @@ impl App for Sun {
         if let Event::UserEvent(CommandEvent::RequestSurface(window)) = event {
             self.create_viewport(Arc::clone(window)).await;
         }
+        if let Event::UserEvent(CommandEvent::CloseWindow((id, _))) = event {
+            self.viewports.remove(id);
+        }
         if let Event::WindowEvent { window_id, event } = event {
             match event {
                 WindowEvent::Resized(new_size) => {

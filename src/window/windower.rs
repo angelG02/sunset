@@ -21,7 +21,7 @@ pub struct WinID {
 #[derive(Default)]
 pub struct Windower {
     pub windows: HashMap<winit::window::WindowId, Arc<winit::window::Window>>,
-    pub window_ids: HashMap<String, winit::window::WindowId>,
+    pub window_names: HashMap<winit::window::WindowId, String>,
     pub commands: Vec<Command>,
 }
 
@@ -43,16 +43,11 @@ impl Windower {
         self.commands.push(cmd);
     }
 
-    pub fn open(&self, args: String) -> Option<Task<CommandEvent>> {
+    pub fn open(&self, args: String) -> Option<Task<Vec<CommandEvent>>> {
         let args_vec: Vec<&str> = args.split(' ').collect();
         if args_vec.len() != 3 {
             error!("Windower <open> takes 3 arguments!");
             error!("args: {:?}", args_vec);
-            return None;
-        }
-
-        if self.window_ids.get(args_vec[0]).is_some() {
-            error!("Window <{}> already exists!", args_vec[0]);
             return None;
         }
 
@@ -68,30 +63,46 @@ impl Windower {
 
             info!("{event:?}");
 
-            event
+            vec![event]
         };
 
         Some(Box::new(cmd))
     }
 
-    pub fn close(&mut self, args: String) -> Option<Task<CommandEvent>> {
+    pub fn close(&mut self, args: String) -> Option<Task<Vec<CommandEvent>>> {
         let args: Vec<&str> = args.split(' ').collect();
+        let name = args[0].to_owned();
         if args.len() != 1 {
             error!("Windower <close> takes 1 argument!");
             error!("args: {:?}", args);
             return None;
         }
 
-        if let Some(id) = self.window_ids.get(args[0]) {
-            self.windows.remove(id);
-            None
-        } else {
-            error!("Window <{}> not found!", args[0]);
-            None
+        let mut windows: Vec<winit::window::WindowId> = vec![];
+
+        for (id, window_name) in &self.window_names {
+            if name == *window_name {
+                windows.push(*id);
+            }
         }
+
+        let mut events: Vec<CommandEvent> = vec![];
+
+        for window in &windows {
+            events.push(CommandEvent::CloseWindow((*window, name.clone())));
+        }
+
+        if !events.is_empty() {
+            return Some(Box::new(move || events.clone()));
+        }
+
+        if windows.is_empty() {
+            error!("Window <{}> not found!", args[0]);
+        }
+        None
     }
 
-    pub fn help(&self) -> Option<Task<CommandEvent>> {
+    pub fn help(&self) -> Option<Task<Vec<CommandEvent>>> {
         info!(
             "open <Name> <Width> <Height> -> Opens a window with the specified name and dimensions"
         );
@@ -100,7 +111,7 @@ impl Windower {
         None
     }
 
-    pub fn unsupported(&self, args: &str) -> Option<Task<CommandEvent>> {
+    pub fn unsupported(&self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
         error!("Unsupported arguments {args}");
         info!("type help for supported commands");
         None
@@ -121,7 +132,7 @@ impl Windower {
         let win_id = window.id();
 
         self.windows.insert(window.id(), Arc::new(window));
-        self.window_ids.insert(props.name.clone(), win_id);
+        self.window_names.insert(win_id, props.name.clone());
 
         info!("Created window {}: {:?}", props.name.clone(), win_id);
         let window = self.windows.get(&win_id).unwrap();
@@ -161,6 +172,12 @@ impl App for Windower {
         } = event
         {
             self.windows.remove(window_id);
+            self.window_names.remove(window_id);
+        }
+
+        if let winit::event::Event::UserEvent(CommandEvent::CloseWindow((id, _))) = event {
+            self.windows.remove(id);
+            self.window_names.remove(id);
         }
     }
 

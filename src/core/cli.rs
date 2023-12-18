@@ -29,23 +29,23 @@ impl CLI {
     }
 
     // TODO: load dyn lib
-    fn load_dynamic(_path: &str) -> Option<Task<CommandEvent>> {
+    fn load_dynamic(_path: &str) -> Option<Task<Vec<CommandEvent>>> {
         None
     }
 
-    fn exit(&self) -> Option<Task<CommandEvent>> {
+    fn exit(&self) -> Option<Task<Vec<CommandEvent>>> {
         let cmd = move || {
             let event = CommandEvent::Exit;
 
             info!("{event:?}");
 
-            event
+            vec![event]
         };
 
         Some(Box::new(cmd))
     }
 
-    fn unsupported(args: &str) -> Option<Task<CommandEvent>> {
+    fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>> {
         error!("Unsupported arguments {args}");
         None
     }

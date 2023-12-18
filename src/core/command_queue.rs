@@ -39,7 +39,7 @@ pub struct Command {
     pub command_type: CommandType,
 
     pub args: Option<String>,
-    pub task: Option<Task<CommandEvent>>,
+    pub task: Option<Task<Vec<CommandEvent>>>,
 }
 
 impl Command {
@@ -47,7 +47,7 @@ impl Command {
         app: &str,
         command_type: CommandType,
         args: Option<String>,
-        task: Task<CommandEvent>,
+        task: Task<Vec<CommandEvent>>,
     ) -> Command {
         Command {
             app: app.to_owned(),
@@ -127,8 +127,10 @@ impl CommandQueue {
             let command = self.commands.pop_front();
             if let Some(command) = command {
                 if let Some(mut task) = command.task {
-                    let event = task();
-                    elp.send_event(event).expect("Could not send event T-T");
+                    let events = task();
+                    for event in events {
+                        elp.send_event(event).expect("Could not send event T-T");
+                    }
                 }
             }
         }

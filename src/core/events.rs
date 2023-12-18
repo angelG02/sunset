@@ -12,7 +12,7 @@ pub struct NewWindowProps {
 #[derive(Debug, Clone)]
 pub enum CommandEvent {
     OpenWindow(NewWindowProps),
-    CloseWindow(winit::window::WindowId),
+    CloseWindow((winit::window::WindowId, String)),
     RequestSurface(Arc<winit::window::Window>),
     Exit,
     // File(String),
