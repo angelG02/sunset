@@ -3,6 +3,7 @@ use crate::{
         app::App,
         command_queue::{Command, CommandType},
     },
+    renderer,
     window::windower,
 };
 
@@ -16,5 +17,10 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
         task,
     }]);
 
-    vec![("Windower".into(), Box::new(windower))]
+    let sun = renderer::sun::Sun::default();
+
+    vec![
+        ("Windower".into(), Box::new(windower)),
+        ("Sun".into(), Box::new(sun)),
+    ]
 }

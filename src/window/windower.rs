@@ -1,7 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use async_trait::async_trait;
 use tracing::{error, info};
-use winit::{dpi::PhysicalSize, event_loop::EventLoopWindowTarget};
+use winit::{
+    dpi::PhysicalSize,
+    event_loop::{EventLoopProxy, EventLoopWindowTarget},
+};
 
 use crate::core::{
     app::App,
@@ -16,7 +20,7 @@ pub struct WinID {
 
 #[derive(Default)]
 pub struct Windower {
-    pub windows: HashMap<winit::window::WindowId, winit::window::Window>,
+    pub windows: HashMap<winit::window::WindowId, Arc<winit::window::Window>>,
     pub window_ids: HashMap<String, winit::window::WindowId>,
     pub commands: Vec<Command>,
 }
@@ -101,8 +105,38 @@ impl Windower {
         info!("type help for supported commands");
         None
     }
+
+    pub fn create_window(
+        &mut self,
+        props: NewWindowProps,
+        elp: EventLoopProxy<CommandEvent>,
+        elwt: &EventLoopWindowTarget<CommandEvent>,
+    ) {
+        let window = winit::window::WindowBuilder::new()
+            .with_inner_size(winit::dpi::Size::Physical(props.size))
+            .with_title(props.name.clone())
+            .build(elwt)
+            .expect("Could not create new window T-T");
+
+        let win_id = window.id();
+
+        self.windows.insert(window.id(), Arc::new(window));
+        self.window_ids.insert(props.name.clone(), win_id);
+
+        info!("Created window {}: {:?}", props.name.clone(), win_id);
+        let window = self.windows.get(&win_id).unwrap();
+
+        elp.send_event(CommandEvent::RequestSurface(Arc::clone(window)))
+            .expect("Failed to send event!");
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            append_canvas(window, props.size);
+        }
+    }
 }
 
+#[async_trait]
 impl App for Windower {
     fn init(&mut self, mut init_commands: Vec<Command>) {
         self.commands.append(&mut init_commands);
@@ -116,31 +150,11 @@ impl App for Windower {
         self.process_window_command(cmd);
     }
 
-    fn process_event(
+    async fn process_event(
         &mut self,
         event: &winit::event::Event<CommandEvent>,
-        elwt: &EventLoopWindowTarget<CommandEvent>,
+        _elp: EventLoopProxy<CommandEvent>,
     ) {
-        if let winit::event::Event::UserEvent(CommandEvent::OpenWindow(props)) = event {
-            let window = winit::window::WindowBuilder::new()
-                .with_inner_size(winit::dpi::Size::Physical(props.size))
-                .with_title(props.name.clone())
-                .build(elwt)
-                .expect("Could not create new window T-T");
-
-            let win_id = window.id();
-
-            self.windows.insert(window.id(), window);
-            self.window_ids.insert(props.name.clone(), win_id);
-
-            info!("Created window {}: {:?}", props.name.clone(), win_id);
-
-            #[cfg(target_arch = "wasm32")]
-            {
-                let window = self.windows.get(&win_id).unwrap();
-                append_canvas(window, props.size);
-            }
-        }
         if let winit::event::Event::WindowEvent {
             window_id,
             event: winit::event::WindowEvent::CloseRequested,
@@ -161,7 +175,6 @@ impl App for Windower {
 
 #[cfg(target_arch = "wasm32")]
 fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
-    use wasm_bindgen::prelude::*;
     use winit::platform::web::WindowExtWebSys;
 
     window.set_min_inner_size(Some(size));

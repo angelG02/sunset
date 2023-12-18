@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use winit::dpi::PhysicalSize;
 
 #[derive(Default, Debug, Clone)]
@@ -10,9 +12,11 @@ pub struct NewWindowProps {
 #[derive(Debug, Clone)]
 pub enum CommandEvent {
     OpenWindow(NewWindowProps),
+    CloseWindow(winit::window::WindowId),
+    RequestSurface(Arc<winit::window::Window>),
     Exit,
-    File(String),
-    FileNotFound,
-    FilePending(String),
+    // File(String),
+    // FileNotFound,
+    // FilePending(String),
     None,
 }

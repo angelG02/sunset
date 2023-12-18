@@ -1,5 +1,6 @@
+use async_trait::async_trait;
 use tracing::{error, info};
-use winit::event_loop::EventLoopWindowTarget;
+use winit::event_loop::EventLoopProxy;
 
 use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
 
@@ -50,6 +51,7 @@ impl CLI {
     }
 }
 
+#[async_trait]
 impl App for CLI {
     fn init(&mut self, mut init_commands: Vec<Command>) {
         self.commands.append(&mut init_commands);
@@ -63,14 +65,14 @@ impl App for CLI {
         self.process_cli_command(cmd);
     }
 
-    fn process_event(
+    async fn process_event(
         &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        elwt: &EventLoopWindowTarget<CommandEvent>,
+        _event: &winit::event::Event<CommandEvent>,
+        _elp: EventLoopProxy<CommandEvent>,
     ) {
-        if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
-            elwt.exit()
-        }
+        // if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
+        //     elwt.exit()
+        // }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

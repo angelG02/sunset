@@ -7,12 +7,15 @@ use once_cell::sync::Lazy;
 use tracing::{info, warn};
 use winit::event_loop::EventLoopProxy;
 
-use crate::core::{
-    app::App,
-    cli::run_cli,
-    command_queue::{Command, CommandQueue},
-    default_apps::default_apps,
-    events::CommandEvent,
+use crate::{
+    core::{
+        app::App,
+        cli::run_cli,
+        command_queue::{Command, CommandQueue},
+        default_apps::default_apps,
+        events::CommandEvent,
+    },
+    window::windower::Windower,
 };
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
@@ -40,7 +43,7 @@ impl State {
         let default_apps = default_apps();
 
         for app in default_apps {
-            State::insert_app(app.0.as_str(), app.1);
+            State::insert_app(&app.0, app.1);
         }
 
         event_loop
@@ -123,10 +126,35 @@ pub fn run() {
             }
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-            let apps = &mut State::write().apps;
+            let elp: EventLoopProxy<CommandEvent>;
+            {
+                elp = State::get_proxy();
+            }
+            {
+                let apps = &mut State::write().apps;
 
-            for app in apps.values_mut() {
-                app.process_event(&event, elwt);
+                for app in apps.values_mut() {
+                    pollster::block_on(app.process_event(&event, elp.clone()));
+                }
+            }
+            if let winit::event::Event::UserEvent(event) = event {
+                match event {
+                    CommandEvent::OpenWindow(props) => {
+                        let mut state_lock = State::write();
+
+                        let windower = state_lock
+                            .apps
+                            .get_mut("windower")
+                            .unwrap()
+                            .as_any_mut()
+                            .downcast_mut::<Windower>()
+                            .unwrap();
+
+                        windower.create_window(props, elp, elwt);
+                    }
+                    CommandEvent::Exit => elwt.exit(),
+                    _ => {}
+                }
             }
         })
         .unwrap();
