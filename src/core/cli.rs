@@ -87,7 +87,6 @@ pub fn get_cli_command() -> Command {
 
     buffer.clear();
 
-    info!("Please enter command! (type 'help' for list of commands)");
     std::io::stdin()
         .read_line(&mut buffer)
         .expect("Could not read provided command!");

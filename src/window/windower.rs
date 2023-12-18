@@ -133,10 +133,12 @@ impl App for Windower {
             self.windows.insert(window.id(), window);
             self.window_ids.insert(props.name.clone(), win_id);
 
+            info!("Created window {}: {:?}", props.name.clone(), win_id);
+
             #[cfg(target_arch = "wasm32")]
             {
                 let window = self.windows.get(&win_id).unwrap();
-                append_canvas(window);
+                append_canvas(window, props.size);
             }
         }
         if let winit::event::Event::WindowEvent {
@@ -158,9 +160,11 @@ impl App for Windower {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn append_canvas(window: &winit::window::Window) {
+fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
     use wasm_bindgen::prelude::*;
     use winit::platform::web::WindowExtWebSys;
+
+    window.set_min_inner_size(Some(size));
 
     // Use `web_sys`'s global `window` function to get a handle on the global
     // window object.
@@ -174,29 +178,15 @@ fn append_canvas(window: &winit::window::Window) {
     canvas_header.set_text_content(Some(format!("Canvas: {:?}", window.id()).as_str()));
     body.append_child(&canvas_header).unwrap();
 
+    let canvas_css = format!("width: {}px; height: {}px", size.width, size.height);
+
     web_sys::window()
         .and_then(|win| win.document())
         .and_then(|doc| {
-            let canvas = web_sys::Element::from(window.canvas().unwrap());
+            let canvas = window.canvas().unwrap();
+            canvas.style().set_css_text(canvas_css.as_str());
             body.append_child(&canvas).ok()?;
             Some(())
         })
         .expect("Couldn't append canvas to document body.");
 }
-
-// pub struct WindowCommand {
-//     pub command_type: CommandType,
-//     pub args: String,
-//     pub task: Option<Task<CommandEvent>>,
-// }
-
-// impl IntoCommand for WindowCommand {
-//     fn into_command(self) -> Command {
-//         Command {
-//             app: "Windower".into(),
-//             command_type: self.command_type,
-//             args: Some(self.args),
-//             task: self.task,
-//         }
-//     }
-// }

@@ -4,13 +4,14 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use tracing::warn;
+use tracing::{info, warn};
 use winit::event_loop::EventLoopProxy;
 
 use crate::core::{
     app::App,
     cli::run_cli,
     command_queue::{Command, CommandQueue},
+    default_apps::default_apps,
     events::CommandEvent,
 };
 
@@ -34,6 +35,12 @@ impl State {
         unsafe {
             let mut state_lock = GLOBAL_STATE.write().unwrap();
             state_lock.event_loop_proxy = Some(event_loop_proxy);
+        }
+
+        let default_apps = default_apps();
+
+        for app in default_apps {
+            State::insert_app(app.0.as_str(), app.1);
         }
 
         event_loop
@@ -99,6 +106,8 @@ impl Default for State {
 pub fn run() {
     let event_loop = State::init();
 
+    info!("Initialzied State!");
+
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || {
         run_cli();
@@ -143,6 +152,7 @@ fn init_trace() {
         .with_file(false)
         .with_line_number(true)
         .without_time()
+        .with_thread_ids(true)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)
