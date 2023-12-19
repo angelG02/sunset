@@ -1,6 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
+use wgpu::{Adapter, Device, Instance, Queue};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
@@ -10,12 +14,12 @@ use winit::{
 use crate::core::{app::App, command_queue::Command, events::CommandEvent};
 
 pub struct Sun {
-    instance: Option<wgpu::Instance>,
-    adapter: Option<wgpu::Adapter>,
-    device: Option<wgpu::Device>,
-    queue: Option<wgpu::Queue>,
+    instance: Arc<Option<wgpu::Instance>>,
+    adapter: Arc<Option<wgpu::Adapter>>,
+    device: Arc<Option<wgpu::Device>>,
+    queue: Arc<Option<wgpu::Queue>>,
 
-    pub viewports: HashMap<winit::window::WindowId, Viewport>,
+    pub viewports: HashMap<winit::window::WindowId, Arc<Mutex<Viewport>>>,
 
     commands: Vec<Command>,
 }
@@ -26,8 +30,7 @@ unsafe impl Sync for Sun {}
 impl Sun {
     pub async fn create_adapter(&mut self, surface: &wgpu::Surface) {
         let adapter = self
-            .instance
-            .as_ref()
+            .get_instance()
             .unwrap()
             .request_adapter(&wgpu::RequestAdapterOptions {
                 // Request an adapter which can render to our surface
@@ -36,14 +39,13 @@ impl Sun {
             })
             .await
             .expect("Failed to find an appropriate adapter");
-        self.adapter = Some(adapter);
+        self.adapter = Arc::new(Some(adapter));
     }
 
     pub async fn create_device(&mut self) {
         // Create the logical device and command queue
         let (device, queue) = self
-            .adapter
-            .as_ref()
+            .get_adapter()
             .unwrap()
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -56,8 +58,8 @@ impl Sun {
             .await
             .expect("Failed to create device");
 
-        self.device = Some(device);
-        self.queue = Some(queue);
+        self.device = Arc::new(Some(device));
+        self.queue = Arc::new(Some(queue));
     }
 
     pub async fn create_viewport(&mut self, window: Arc<Window>) {
@@ -69,7 +71,7 @@ impl Sun {
                 b: 0.0,
                 a: 0.0,
             },
-            self.instance.as_ref().unwrap(),
+            self.get_instance().unwrap(),
         );
 
         if self.adapter.is_none() {
@@ -79,22 +81,21 @@ impl Sun {
             self.create_device().await;
         }
 
-        let vp = vp_desc.build(
-            self.adapter.as_ref().unwrap(),
-            self.device.as_ref().unwrap(),
-        );
+        let vp = vp_desc.build(Arc::clone(&self.adapter), Arc::clone(&self.device));
 
-        self.viewports.insert(window.id(), vp);
+        self.viewports.insert(window.id(), Arc::new(Mutex::new(vp)));
     }
 
     pub fn clear_screen(&mut self, window_id: &winit::window::WindowId) {
         if let Some(viewport) = self.viewports.get_mut(window_id) {
-            let frame = viewport.get_current_texture();
+            let mut vp_lock = viewport.lock().unwrap();
+            let frame = vp_lock.get_current_texture();
             let view = frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let mut encoder = self
                 .device
+                .as_ref()
                 .as_ref()
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -105,7 +106,7 @@ impl Sun {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(viewport.desc.background),
+                            load: wgpu::LoadOp::Clear(vp_lock.desc.background),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -115,9 +116,29 @@ impl Sun {
                 });
             }
 
-            self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
+            self.queue
+                .as_ref()
+                .as_ref()
+                .unwrap()
+                .submit(Some(encoder.finish()));
             frame.present();
         }
+    }
+
+    pub fn get_instance(&self) -> Option<&Instance> {
+        self.instance.as_ref().as_ref()
+    }
+
+    pub fn get_adapter(&self) -> Option<&Adapter> {
+        self.adapter.as_ref().as_ref()
+    }
+
+    pub fn get_device(&self) -> Option<&Device> {
+        self.device.as_ref().as_ref()
+    }
+
+    pub fn get_queue(&self) -> Option<&Queue> {
+        self.queue.as_ref().as_ref()
     }
 }
 
@@ -132,10 +153,10 @@ impl Default for Sun {
         });
 
         Self {
-            instance: Some(instance),
-            adapter: None,
-            device: None,
-            queue: None,
+            instance: Arc::new(Some(instance)),
+            adapter: Arc::new(None),
+            device: Arc::new(None),
+            queue: Arc::new(None),
 
             viewports: HashMap::new(),
             commands: vec![],
@@ -167,9 +188,10 @@ impl App for Sun {
                 WindowEvent::Resized(new_size) => {
                     // Recreate the swap chain with the new size
                     if let Some(viewport) = self.viewports.get_mut(window_id) {
-                        viewport.resize(self.device.as_ref().unwrap(), *new_size);
+                        let mut vp_lock = viewport.lock().unwrap();
+                        vp_lock.resize(self.device.as_ref().as_ref().unwrap(), *new_size);
                         // On macos the window needs to be redrawn manually after resizing
-                        viewport.desc.window.request_redraw();
+                        vp_lock.desc.window.request_redraw();
                     }
                 }
                 WindowEvent::RedrawRequested => self.clear_screen(window_id),
@@ -215,10 +237,16 @@ impl ViewportDesc {
         }
     }
 
-    fn build(self, adapter: &wgpu::Adapter, device: &wgpu::Device) -> Viewport {
+    fn build(
+        self,
+        adapter: Arc<Option<wgpu::Adapter>>,
+        device: Arc<Option<wgpu::Device>>,
+    ) -> Viewport {
         let size = self.window.inner_size();
 
-        let caps = self.surface.get_capabilities(adapter);
+        let caps = self
+            .surface
+            .get_capabilities(adapter.as_ref().as_ref().unwrap());
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: caps.formats[0],
@@ -229,7 +257,8 @@ impl ViewportDesc {
             view_formats: vec![],
         };
 
-        self.surface.configure(device, &config);
+        self.surface
+            .configure(device.as_ref().as_ref().unwrap(), &config);
 
         Viewport { desc: self, config }
     }
