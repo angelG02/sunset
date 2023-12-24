@@ -147,7 +147,7 @@ impl Windower {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl App for Windower {
     fn init(&mut self, mut init_commands: Vec<Command>) {
         self.commands.append(&mut init_commands);

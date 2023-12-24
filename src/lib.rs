@@ -7,3 +7,7 @@ pub mod prelude {
     pub use crate::renderer::*;
     pub use crate::window::*;
 }
+
+pub mod pollster {
+    pub use pollster::*;
+}

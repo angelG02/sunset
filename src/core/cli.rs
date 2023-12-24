@@ -37,8 +37,6 @@ impl CLI {
         let cmd = move || {
             let event = CommandEvent::Exit;
 
-            info!("{event:?}");
-
             vec![event]
         };
 
@@ -51,7 +49,7 @@ impl CLI {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl App for CLI {
     fn init(&mut self, mut init_commands: Vec<Command>) {
         self.commands.append(&mut init_commands);
@@ -70,9 +68,6 @@ impl App for CLI {
         _event: &winit::event::Event<CommandEvent>,
         _elp: EventLoopProxy<CommandEvent>,
     ) {
-        // if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
-        //     elwt.exit()
-        // }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -99,17 +94,6 @@ pub fn get_cli_command() -> Command {
 
     let args: Vec<&str> = command.split(' ').collect();
 
-    // match args[0].to_ascii_lowercase().as_str() {
-    //     "assetserver" => match args[1].to_ascii_lowercase().as_str() {
-    //         "get" => AssetCommand::new(CommandType::Get, args[2..].join(" "), elp).into_command(),
-    //         _ => AssetCommand::new(CommandType::Other, args[2..].join(" "), elp).into_command(),
-    //     },
-    //     "window" => match args[1].to_ascii_lowercase().as_str() {
-    //         "open" => WindowCommand::new(CommandType::Open, args[2..].join(" ")).into_command(),
-    //         _ => WindowCommand::new(CommandType::Other, args[2..].join(" ")).into_command(),
-    //     },
-    //     _ => Command::from_args(args, elp),
-    // }
     Command {
         app: args[0].to_owned(),
         command_type: CommandType::TBD,

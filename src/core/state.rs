@@ -112,9 +112,21 @@ pub fn run() {
     info!("Initialzied State!");
 
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::spawn(move || {
-        run_cli();
-    });
+    {
+        let builder = std::thread::Builder::new().name("CLI".into());
+
+        builder
+            .spawn(move || {
+                run_cli();
+            })
+            .unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(16)
+        .build()
+        .unwrap();
 
     event_loop
         .run(move |event, elwt| {
@@ -134,7 +146,16 @@ pub fn run() {
                 let apps = &mut State::write().apps;
 
                 for app in apps.values_mut() {
-                    pollster::block_on(app.process_event(&event, elp.clone()));
+                    #[cfg(not(target_arch = "wasm32"))]
+                    runtime.block_on(app.process_event(&event, elp.clone()));
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let fut = app.process_event(&event, elp.clone());
+                        let mut cm = cassette::Cassette::new(fut);
+
+                        while cm.poll_on().is_none() {}
+                    }
                 }
             }
             if let winit::event::Event::UserEvent(event) = event {
@@ -152,7 +173,10 @@ pub fn run() {
 
                         windower.create_window(props, elp, elwt);
                     }
-                    CommandEvent::Exit => elwt.exit(),
+                    CommandEvent::Exit => {
+                        let mut state_lock = State::write();
+                        state_lock.running = false;
+                    }
                     _ => {}
                 }
             }
@@ -177,10 +201,11 @@ fn init_trace() {
     // Trace initialization
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
-        .with_file(false)
-        .with_line_number(true)
         .without_time()
+        .with_file(false)
+        .with_target(false)
         .with_thread_ids(true)
+        .with_thread_names(true)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

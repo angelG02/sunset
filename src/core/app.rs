@@ -7,7 +7,7 @@ use crate::core::command_queue::*;
 
 use async_trait::async_trait;
 
-#[async_trait]
+#[async_trait(?Send)]
 /// The `App` trait represents the core functionality of an application.
 pub trait App {
     /// Initializes the application with the provided initial commands.
@@ -39,7 +39,7 @@ pub trait App {
     /// # Arguments
     ///
     /// * `event` - an event dispatched from the event loop.
-    /// * `elp` - The even loop proxy (can be used to send other events when the current one has been handled).
+    /// * `elp` - The event loop proxy (can be used to send other events when the current one has been handled).
     ///
     async fn process_event(
         &mut self,

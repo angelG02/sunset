@@ -20,9 +20,6 @@ pub struct Sun {
     commands: Vec<Command>,
 }
 
-unsafe impl Send for Sun {}
-unsafe impl Sync for Sun {}
-
 impl Sun {
     pub async fn create_adapter(&mut self, surface: &wgpu::Surface) {
         let adapter = self
@@ -143,7 +140,7 @@ impl Default for Sun {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl App for Sun {
     fn init(&mut self, mut init_commands: Vec<crate::core::command_queue::Command>) {
         self.commands.append(&mut init_commands);
@@ -167,7 +164,7 @@ impl App for Sun {
                 WindowEvent::Resized(new_size) => {
                     // Recreate the swap chain with the new size
                     if let Some(viewport) = self.viewports.get_mut(window_id) {
-                        viewport.resize(self.device.as_ref().unwrap(), *new_size);
+                        viewport.resize(self.device.as_ref().unwrap(), new_size);
                         // On macos the window needs to be redrawn manually after resizing
                         viewport.desc.window.request_redraw();
                     }
@@ -236,7 +233,7 @@ impl ViewportDesc {
 }
 
 impl Viewport {
-    fn resize(&mut self, device: &wgpu::Device, size: winit::dpi::PhysicalSize<u32>) {
+    fn resize(&mut self, device: &wgpu::Device, size: &winit::dpi::PhysicalSize<u32>) {
         if size.height != 0 && size.width != 0 {
             self.config.width = size.width;
             self.config.height = size.height;
