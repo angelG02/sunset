@@ -2,7 +2,12 @@ use async_trait::async_trait;
 use tracing::{error, info};
 use winit::event_loop::EventLoopProxy;
 
-use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
+use crate::core::{
+    app::*,
+    command_queue::*,
+    events::CommandEvent,
+    state::{is_running, State},
+};
 
 pub struct CLIContext;
 
@@ -102,12 +107,12 @@ pub fn get_cli_command() -> Command {
     }
 }
 
-pub fn run_cli() {
-    while State::read().running {
+pub async fn run_cli() {
+    while is_running() {
         let next_command = get_cli_command();
         info!("Command: {:?}", next_command);
 
-        let mut state_lock = State::write();
+        let mut state_lock = State::write().await;
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
             app.process_command(next_command);

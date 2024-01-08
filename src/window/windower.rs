@@ -2,10 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use tracing::{error, info};
-use winit::{
-    dpi::PhysicalSize,
-    event_loop::{EventLoopProxy, EventLoopWindowTarget},
-};
+use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
 use crate::core::{
     app::App,
@@ -120,15 +117,9 @@ impl Windower {
     pub fn create_window(
         &mut self,
         props: NewWindowProps,
+        window: winit::window::Window,
         elp: EventLoopProxy<CommandEvent>,
-        elwt: &EventLoopWindowTarget<CommandEvent>,
     ) {
-        let window = winit::window::WindowBuilder::new()
-            .with_inner_size(winit::dpi::Size::Physical(props.size))
-            .with_title(props.name.clone())
-            .build(elwt)
-            .expect("Could not create new window T-T");
-
         let win_id = window.id();
 
         self.windows.insert(window.id(), Arc::new(window));
