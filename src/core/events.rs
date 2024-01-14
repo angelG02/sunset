@@ -1,9 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use async_std::sync::RwLock;
 use winit::dpi::PhysicalSize;
 
-use crate::renderer::sun::Viewport;
+use crate::prelude::Asset;
 
 #[derive(Default, Debug, Clone)]
 pub struct NewWindowProps {
@@ -15,15 +15,13 @@ pub struct NewWindowProps {
 #[derive(Debug, Clone)]
 pub struct PipelineDesc {
     pub name: String,
-    pub device: Arc<wgpu::Device>,
-    pub viewport: Arc<RwLock<Viewport>>,
+    pub win_id: winit::window::WindowId,
     pub shader_src: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderDesc {
     pub world: Arc<RwLock<bevy_ecs::world::World>>,
-    pub pipelines: Arc<RwLock<HashMap<String, wgpu::RenderPipeline>>>,
     pub window_id: winit::window::WindowId,
 }
 
@@ -34,6 +32,7 @@ pub enum CommandEvent {
     RequestSurface(Arc<winit::window::Window>),
     RequestPipeline(PipelineDesc),
     Render(RenderDesc),
+    Asset(Asset),
     Exit,
     // File(String),
     // FileNotFound,

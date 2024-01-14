@@ -10,8 +10,12 @@ use winit::{
 };
 
 use crate::{
-    core::{app::App, command_queue::Command, events::CommandEvent},
-    prelude::events::RenderDesc,
+    core::{
+        app::App,
+        command_queue::Command,
+        events::{CommandEvent, PipelineDesc},
+    },
+    prelude::{events::RenderDesc, Asset, AssetType},
 };
 
 pub struct Sun {
@@ -21,6 +25,8 @@ pub struct Sun {
     queue: Option<wgpu::Queue>,
 
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
+    pub pipelines: HashMap<String, wgpu::RenderPipeline>,
+    pub shaders: HashMap<String, Asset>,
 
     commands: Vec<Command>,
 }
@@ -90,6 +96,78 @@ impl Sun {
             .insert(window.id(), Arc::new(RwLock::new(vp)));
     }
 
+    pub async fn create_pipeline(
+        &mut self,
+        win_id: winit::window::WindowId,
+        name: String,
+        shader_src: impl AsRef<str>,
+    ) {
+        let vp = self.viewports.get(&win_id).unwrap();
+
+        let shader =
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(&name),
+                    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::from(shader_src.as_ref())),
+                });
+
+        let layout =
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some(&name),
+                    bind_group_layouts: &[],
+                    push_constant_ranges: &[],
+                });
+
+        let pipeline =
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&name),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: "vs_main",
+                        buffers: &[],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: "fs_main",
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: vp.read().await.get_config().format,
+                            blend: Some(wgpu::BlendState::REPLACE),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        strip_index_format: None,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                        polygon_mode: wgpu::PolygonMode::Fill,
+                        // Requires Features::DEPTH_CLIP_CONTROL
+                        unclipped_depth: false,
+                        // Requires Features::CONSERVATIVE_RASTERIZATION
+                        conservative: false,
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState {
+                        count: 1,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    multiview: None,
+                });
+
+        self.pipelines.insert(name, pipeline);
+    }
+
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
         if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
             let mut vp = viewport.write().await;
@@ -104,8 +182,7 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let pipelines = render_desc.pipelines.read().await;
-            let test_pp = pipelines.get("test").unwrap();
+            let test_pp = self.pipelines.get("basic_shader.wgsl");
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -123,8 +200,10 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
-                rpass.set_pipeline(test_pp);
-                rpass.draw(0..3, 0..1);
+                if let Some(pp) = test_pp {
+                    rpass.set_pipeline(pp);
+                    rpass.draw(0..3, 0..1);
+                }
             }
 
             self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
@@ -150,6 +229,9 @@ impl Default for Sun {
             queue: None,
 
             viewports: HashMap::new(),
+            pipelines: HashMap::new(),
+            shaders: HashMap::new(),
+
             commands: vec![],
         }
     }
@@ -172,23 +254,6 @@ impl App for Sun {
             match event {
                 CommandEvent::RequestSurface(window) => {
                     self.create_viewport(Arc::clone(window)).await;
-
-                    use crate::core::events::PipelineDesc;
-
-                    let path = env!("ASSETS_PATH").to_owned() + "shaders/basic_shader.wgsl";
-                    info!("{path}");
-
-                    let src = std::fs::read_to_string(path).unwrap();
-
-                    let pipe_desc = PipelineDesc {
-                        name: "test".into(),
-                        device: self.device.clone().unwrap(),
-                        viewport: self.viewports.get(&window.id()).unwrap().clone(),
-                        shader_src: src,
-                    };
-
-                    elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
-                        .unwrap();
                 }
                 CommandEvent::CloseWindow((id, _)) => {
                     self.viewports.remove(id);
@@ -196,6 +261,20 @@ impl App for Sun {
 
                 CommandEvent::Render(render_desc) => {
                     self.redraw(render_desc.clone()).await;
+                }
+
+                CommandEvent::RequestPipeline(pipe_desc) => {
+                    let pipe_desc = pipe_desc.clone();
+
+                    self.create_pipeline(pipe_desc.win_id, pipe_desc.name, pipe_desc.shader_src)
+                        .await;
+                }
+
+                CommandEvent::Asset(asset) => {
+                    if asset.asset_type == AssetType::Shader {
+                        info!("Asset!");
+                        self.shaders.insert(asset.name.clone(), asset.clone());
+                    }
                 }
                 _ => {}
             }
@@ -218,6 +297,21 @@ impl App for Sun {
                 }
                 WindowEvent::CloseRequested => {
                     self.viewports.remove(window_id);
+                }
+
+                WindowEvent::RedrawRequested => {
+                    for (name, shader) in &self.shaders {
+                        if !self.pipelines.contains_key(name) {
+                            let pipe_desc = PipelineDesc {
+                                name: name.clone(),
+                                win_id: *window_id,
+                                shader_src: shader.data.clone(),
+                            };
+
+                            elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
+                                .unwrap();
+                        }
+                    }
                 }
                 _ => {}
             }

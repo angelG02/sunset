@@ -22,8 +22,8 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
     let scene = scene::Scene::default();
 
     vec![
-        ("Windower".into(), Box::new(windower)),
-        ("Sun".into(), Box::new(sun)),
-        ("Default Scene".into(), Box::new(scene)),
+        ("windower".into(), Box::new(windower)),
+        ("sun".into(), Box::new(sun)),
+        ("defautl_scene".into(), Box::new(scene)),
     ]
 }

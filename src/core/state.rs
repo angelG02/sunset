@@ -8,10 +8,11 @@ use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
 use crate::{
+    assets::{asset_cmd::AssetCommand, asset_server::AssetServer},
     core::{
         app::App,
         cli::run_cli,
-        command_queue::{Command, CommandQueue},
+        command_queue::{Command, CommandQueue, CommandType},
         default_apps::default_apps,
         events::{CommandEvent, NewWindowProps},
     },
@@ -48,6 +49,22 @@ impl State {
 
         let event_loop_proxy = event_loop.create_proxy();
 
+        // NOTE (@A40): Local only for now
+        let mut asset_server = AssetServer::new("127.0.0.1:7878".into());
+
+        let load_basic_shader = Command::new(
+            "asset_server",
+            CommandType::Get,
+            None,
+            AssetCommand::get_from_server(
+                "127.0.0.1:7878 shaders/basic_shader.wgsl shader".into(),
+                event_loop_proxy.clone(),
+            )
+            .unwrap(),
+        );
+
+        asset_server.init(vec![load_basic_shader]);
+
         // Scoped to make sure the lock is dropped
         {
             let mut state_lock = State::write().await;
@@ -60,6 +77,9 @@ impl State {
             State::insert_app(&app.0, app.1).await;
         }
 
+        {
+            State::insert_app("asset_server", Box::new(asset_server)).await;
+        }
         event_loop
     }
 
@@ -183,7 +203,7 @@ pub async fn run() {
             let _delta_time = frame_time as f32 * 0.000000001;
             current_time = new_time;
 
-            //info!("{_delta_time}s");
+            info!("{_delta_time}s");
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
