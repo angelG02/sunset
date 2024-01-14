@@ -22,12 +22,13 @@ use sunset::prelude::*;
 
 fn main() {
     let cli = cli::CLI {
-        command_queue: command_queue::CommandQueue::default(),
-        context: command_queue::Context,
+        commands: vec![],
+        context: cli::CLIContext,
     };
 
-    State::insert_app("CLI", Box::new(cli));
-    State::run();
+    // Functions need to be polled somehow, I have used pollster (which sunset re-exports), but tokio or any runtime can be used
+    sunset::pollster::block_on(State::insert_app("CLI", Box::new(cli)));
+    sunset::pollster::block_on(state::run());
 }
 
 ```
