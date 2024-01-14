@@ -1,7 +1,13 @@
+use async_trait::async_trait;
 use tracing::{error, info};
-use winit::event_loop::EventLoopWindowTarget;
+use winit::event_loop::EventLoopProxy;
 
-use crate::core::{app::*, command_queue::*, events::CommandEvent, state::State};
+use crate::core::{
+    app::*,
+    command_queue::*,
+    events::CommandEvent,
+    state::{is_running, State},
+};
 
 pub struct CLIContext;
 
@@ -28,34 +34,33 @@ impl CLI {
     }
 
     // TODO: load dyn lib
-    fn load_dynamic(_path: &str) -> Option<Task<CommandEvent>> {
+    fn load_dynamic(_path: &str) -> Option<Task<Vec<CommandEvent>>> {
         None
     }
 
-    fn exit(&self) -> Option<Task<CommandEvent>> {
+    fn exit(&self) -> Option<Task<Vec<CommandEvent>>> {
         let cmd = move || {
             let event = CommandEvent::Exit;
 
-            info!("{event:?}");
-
-            event
+            vec![event]
         };
 
         Some(Box::new(cmd))
     }
 
-    fn unsupported(args: &str) -> Option<Task<CommandEvent>> {
+    fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>> {
         error!("Unsupported arguments {args}");
         None
     }
 }
 
+#[async_trait(?Send)]
 impl App for CLI {
     fn init(&mut self, mut init_commands: Vec<Command>) {
         self.commands.append(&mut init_commands);
     }
 
-    fn queue_commands(&mut self) -> Vec<Command> {
+    fn update(&mut self) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
     }
 
@@ -63,14 +68,11 @@ impl App for CLI {
         self.process_cli_command(cmd);
     }
 
-    fn process_event(
+    async fn process_event(
         &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        elwt: &EventLoopWindowTarget<CommandEvent>,
+        _event: &winit::event::Event<CommandEvent>,
+        _elp: EventLoopProxy<CommandEvent>,
     ) {
-        if let winit::event::Event::UserEvent(CommandEvent::Exit) = event {
-            elwt.exit()
-        }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -97,17 +99,6 @@ pub fn get_cli_command() -> Command {
 
     let args: Vec<&str> = command.split(' ').collect();
 
-    // match args[0].to_ascii_lowercase().as_str() {
-    //     "assetserver" => match args[1].to_ascii_lowercase().as_str() {
-    //         "get" => AssetCommand::new(CommandType::Get, args[2..].join(" "), elp).into_command(),
-    //         _ => AssetCommand::new(CommandType::Other, args[2..].join(" "), elp).into_command(),
-    //     },
-    //     "window" => match args[1].to_ascii_lowercase().as_str() {
-    //         "open" => WindowCommand::new(CommandType::Open, args[2..].join(" ")).into_command(),
-    //         _ => WindowCommand::new(CommandType::Other, args[2..].join(" ")).into_command(),
-    //     },
-    //     _ => Command::from_args(args, elp),
-    // }
     Command {
         app: args[0].to_owned(),
         command_type: CommandType::TBD,
@@ -116,12 +107,12 @@ pub fn get_cli_command() -> Command {
     }
 }
 
-pub fn run_cli() {
-    while State::read().running {
+pub async fn run_cli() {
+    while is_running() {
         let next_command = get_cli_command();
         info!("Command: {:?}", next_command);
 
-        let mut state_lock = State::write();
+        let mut state_lock = State::write().await;
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
             app.process_command(next_command);
