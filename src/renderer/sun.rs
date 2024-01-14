@@ -1,21 +1,26 @@
 use std::{collections::HashMap, sync::Arc};
 
+use async_std::sync::RwLock;
 use async_trait::async_trait;
+use tracing::info;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
     window::Window,
 };
 
-use crate::core::{app::App, command_queue::Command, events::CommandEvent};
+use crate::{
+    core::{app::App, command_queue::Command, events::CommandEvent},
+    prelude::events::RenderDesc,
+};
 
 pub struct Sun {
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
-    device: Option<wgpu::Device>,
+    device: Option<Arc<wgpu::Device>>,
     queue: Option<wgpu::Queue>,
 
-    pub viewports: HashMap<winit::window::WindowId, Viewport>,
+    pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
 
     commands: Vec<Command>,
 }
@@ -53,7 +58,7 @@ impl Sun {
             .await
             .expect("Failed to create device");
 
-        self.device = Some(device);
+        self.device = Some(Arc::new(device));
         self.queue = Some(queue);
     }
 
@@ -81,12 +86,15 @@ impl Sun {
             self.device.as_ref().unwrap(),
         );
 
-        self.viewports.insert(window.id(), vp);
+        self.viewports
+            .insert(window.id(), Arc::new(RwLock::new(vp)));
     }
 
-    pub fn clear_screen(&mut self, window_id: &winit::window::WindowId) {
-        if let Some(viewport) = self.viewports.get_mut(window_id) {
-            let frame = viewport.get_current_texture();
+    pub async fn redraw(&mut self, render_desc: RenderDesc) {
+        if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
+            let mut vp = viewport.write().await;
+
+            let frame = vp.get_current_texture();
             let view = frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
@@ -95,14 +103,18 @@ impl Sun {
                 .as_ref()
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            let pipelines = render_desc.pipelines.read().await;
+            let test_pp = pipelines.get("test").unwrap();
+
             {
-                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(viewport.desc.background),
+                            load: wgpu::LoadOp::Clear(vp.desc.background),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -110,6 +122,9 @@ impl Sun {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
+
+                rpass.set_pipeline(test_pp);
+                rpass.draw(0..3, 0..1);
             }
 
             self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
@@ -151,25 +166,56 @@ impl App for Sun {
     async fn process_event(
         &mut self,
         event: &winit::event::Event<crate::core::events::CommandEvent>,
-        _elp: EventLoopProxy<CommandEvent>,
+        elp: EventLoopProxy<CommandEvent>,
     ) {
-        if let Event::UserEvent(CommandEvent::RequestSurface(window)) = event {
-            self.create_viewport(Arc::clone(window)).await;
+        if let Event::UserEvent(event) = event {
+            match event {
+                CommandEvent::RequestSurface(window) => {
+                    self.create_viewport(Arc::clone(window)).await;
+
+                    use crate::core::events::PipelineDesc;
+
+                    let path = env!("ASSETS_PATH").to_owned() + "shaders/basic_shader.wgsl";
+                    info!("{path}");
+
+                    let src = std::fs::read_to_string(path).unwrap();
+
+                    let pipe_desc = PipelineDesc {
+                        name: "test".into(),
+                        device: self.device.clone().unwrap(),
+                        viewport: self.viewports.get(&window.id()).unwrap().clone(),
+                        shader_src: src,
+                    };
+
+                    elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
+                        .unwrap();
+                }
+                CommandEvent::CloseWindow((id, _)) => {
+                    self.viewports.remove(id);
+                }
+
+                CommandEvent::Render(render_desc) => {
+                    self.redraw(render_desc.clone()).await;
+                }
+                _ => {}
+            }
         }
-        if let Event::UserEvent(CommandEvent::CloseWindow((id, _))) = event {
-            self.viewports.remove(id);
-        }
+
         if let Event::WindowEvent { window_id, event } = event {
             match event {
                 WindowEvent::Resized(new_size) => {
                     // Recreate the swap chain with the new size
                     if let Some(viewport) = self.viewports.get_mut(window_id) {
-                        viewport.resize(self.device.as_ref().unwrap(), new_size);
+                        {
+                            viewport
+                                .write()
+                                .await
+                                .resize(self.device.as_ref().unwrap(), new_size);
+                        }
                         // On macos the window needs to be redrawn manually after resizing
-                        viewport.desc.window.request_redraw();
+                        viewport.read().await.desc.window.request_redraw();
                     }
                 }
-                WindowEvent::RedrawRequested => self.clear_screen(window_id),
                 WindowEvent::CloseRequested => {
                     self.viewports.remove(window_id);
                 }
@@ -178,7 +224,7 @@ impl App for Sun {
         }
     }
 
-    fn queue_commands(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         self.commands.drain(..).collect()
     }
 
@@ -191,12 +237,14 @@ impl App for Sun {
     }
 }
 
+#[derive(Debug)]
 struct ViewportDesc {
     window: Arc<Window>,
     background: wgpu::Color,
     surface: wgpu::Surface,
 }
 
+#[derive(Debug)]
 pub struct Viewport {
     desc: ViewportDesc,
     config: wgpu::SurfaceConfiguration,
@@ -249,5 +297,9 @@ impl Viewport {
 
     pub fn get_surface(&self) -> &wgpu::Surface {
         &self.desc.surface
+    }
+
+    pub fn get_config(&self) -> &wgpu::SurfaceConfiguration {
+        &self.config
     }
 }

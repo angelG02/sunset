@@ -3,6 +3,7 @@ use crate::{
         app::App,
         command_queue::{Command, CommandType},
     },
+    gallery::scene,
     renderer,
     window::windower,
 };
@@ -18,9 +19,11 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
     }]);
 
     let sun = renderer::sun::Sun::default();
+    let scene = scene::Scene::default();
 
     vec![
         ("Windower".into(), Box::new(windower)),
         ("Sun".into(), Box::new(sun)),
+        ("Default Scene".into(), Box::new(scene)),
     ]
 }

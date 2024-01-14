@@ -60,7 +60,7 @@ impl App for CLI {
         self.commands.append(&mut init_commands);
     }
 
-    fn queue_commands(&mut self) -> Vec<Command> {
+    fn update(&mut self) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
     }
 

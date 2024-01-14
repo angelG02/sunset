@@ -18,13 +18,13 @@ pub trait App {
     ///
     fn init(&mut self, init_commands: Vec<Command>);
 
-    /// Queues commands to be processed by the application.
+    /// Queues commands to be processed by the application duricng the current frame.
     ///
     /// # Returns
     ///
     /// A vector of `Command` objects representing the commands to be queued from the app.
     ///
-    fn queue_commands(&mut self /*schedule: Schedule, */) -> Vec<Command>;
+    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command>;
 
     /// Processes a single command.
     ///

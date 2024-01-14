@@ -69,7 +69,7 @@ impl State {
             let apps = &mut State::write().await.apps;
 
             for app in apps.values_mut() {
-                frame_commands.append(&mut app.queue_commands());
+                frame_commands.append(&mut app.update());
             }
         }
 
@@ -169,11 +169,21 @@ pub async fn run() {
         .build()
         .unwrap();
 
+    let mut current_time = web_time::Instant::now();
+
     event_loop
         .run(move |event, elwt| {
             if !is_running() {
                 elwt.exit()
             }
+
+            // Calculate frame time (delta time)
+            let new_time = web_time::Instant::now();
+            let frame_time = (new_time - current_time).as_nanos();
+            let _delta_time = frame_time as f32 * 0.000000001;
+            current_time = new_time;
+
+            //info!("{_delta_time}s");
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
@@ -197,14 +207,14 @@ pub async fn run() {
                             .build(elwt)
                             .expect("Could not create new window T-T");
 
-                            cfg_if::cfg_if! {
-                                if #[cfg(not(target_arch = "wasm32"))] {
-                                    runtime.block_on(State::on_new_window_requested(props, window));
-                                }
-                                else {
-                                    wasm_bindgen_futures::spawn_local(State::on_new_window_requested(props, window));
-                                }
+                        cfg_if::cfg_if! {
+                            if #[cfg(not(target_arch = "wasm32"))] {
+                                runtime.block_on(State::on_new_window_requested(props, window));
                             }
+                            else {
+                                wasm_bindgen_futures::spawn_local(State::on_new_window_requested(props, window));
+                            }
+                        }
                     }
                     CommandEvent::Exit => {
                         terminate();

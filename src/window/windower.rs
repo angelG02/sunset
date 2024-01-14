@@ -144,7 +144,7 @@ impl App for Windower {
         self.commands.append(&mut init_commands);
     }
 
-    fn queue_commands(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         self.commands.drain(..).collect()
     }
 
