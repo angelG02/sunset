@@ -276,9 +276,7 @@ impl Default for Sun {
 
 #[async_trait(?Send)]
 impl App for Sun {
-    fn init(&mut self, mut init_commands: Vec<crate::core::command_queue::Command>) {
-        self.commands.append(&mut init_commands);
-    }
+    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
     fn process_command(&mut self, _cmd: Command) {}
 
@@ -342,7 +340,9 @@ impl App for Sun {
                             let pipe_desc = PipelineDesc {
                                 name: name.clone(),
                                 win_id: *window_id,
-                                shader_src: shader.data.clone(),
+                                shader_src: std::str::from_utf8(shader.data.clone().as_slice())
+                                    .unwrap()
+                                    .to_owned(),
                             };
 
                             elp.send_event(CommandEvent::RequestPipeline(pipe_desc))

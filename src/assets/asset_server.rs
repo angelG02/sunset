@@ -19,9 +19,7 @@ impl AssetServer {
 
 #[async_trait(?Send)]
 impl App for AssetServer {
-    fn init(&mut self, mut init_commands: Vec<crate::core::command_queue::Command>) {
-        self.commands.append(&mut init_commands);
-    }
+    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
     fn process_command(&mut self, _cmd: Command) {}
 

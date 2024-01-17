@@ -49,26 +49,10 @@ impl State {
 
         let event_loop_proxy = event_loop.create_proxy();
 
-        // NOTE (@A40): Local only for now
-        let mut asset_server = AssetServer::new("127.0.0.1:7878".into());
-
-        let load_basic_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            None,
-            AssetCommand::get_from_server(
-                "127.0.0.1:7878 shaders/basic_shader.wgsl shader".into(),
-                event_loop_proxy.clone(),
-            )
-            .unwrap(),
-        );
-
-        asset_server.init(vec![load_basic_shader]);
-
         // Scoped to make sure the lock is dropped
         {
             let mut state_lock = State::write().await;
-            state_lock.event_loop_proxy = Some(event_loop_proxy);
+            state_lock.event_loop_proxy = Some(event_loop_proxy.clone());
         }
 
         let default_apps = default_apps();
@@ -78,7 +62,12 @@ impl State {
         }
 
         {
-            State::insert_app("asset_server", Box::new(asset_server)).await;
+            let mut state_lock = State::write().await;
+            let apps = &mut state_lock.apps;
+
+            for app in apps.values_mut() {
+                app.init(event_loop_proxy.clone())
+            }
         }
         event_loop
     }

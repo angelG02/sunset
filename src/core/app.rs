@@ -16,7 +16,7 @@ pub trait App {
     ///
     /// * `init_commands` - A vector of `Command` objects representing the initial commands.
     ///
-    fn init(&mut self, init_commands: Vec<Command>);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>);
 
     /// Queues commands to be processed by the application duricng the current frame.
     ///

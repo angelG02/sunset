@@ -140,8 +140,17 @@ impl Windower {
 
 #[async_trait(?Send)]
 impl App for Windower {
-    fn init(&mut self, mut init_commands: Vec<Command>) {
-        self.commands.append(&mut init_commands);
+    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {
+        let task = self.open("Sandbox 1920 1080".into());
+
+        let cmd = Command {
+            app: "Windower".into(),
+            args: None,
+            command_type: crate::core::command_queue::CommandType::Open,
+            task,
+        };
+
+        self.commands.push(cmd);
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {

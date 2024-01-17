@@ -1,8 +1,16 @@
 use async_std::sync::RwLock;
 use async_trait::async_trait;
+use tracing::info;
 use winit::event_loop::EventLoopProxy;
 
-use crate::core::{app::App, command_queue::Command, events::CommandEvent};
+use crate::{
+    core::{
+        app::App,
+        command_queue::{Command, CommandType},
+        events::CommandEvent,
+    },
+    prelude::{asset_cmd::AssetCommand, AssetType},
+};
 use std::sync::Arc;
 
 #[derive(Default)]
@@ -19,7 +27,32 @@ impl Scene {
 
 #[async_trait(?Send)]
 impl App for Scene {
-    fn init(&mut self, _init_commands: Vec<crate::prelude::command_queue::Command>) {}
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        let load_basic_shader = Command::new(
+            "default_scene",
+            CommandType::Get,
+            None,
+            AssetCommand::get_from_server(
+                "127.0.0.1:7878 shaders/basic_shader.wgsl shader".into(),
+                elp.clone(),
+            )
+            .unwrap(),
+        );
+
+        let load_test_tex = Command::new(
+            "default_scene",
+            CommandType::Get,
+            None,
+            AssetCommand::get_from_server(
+                "127.0.0.1:7878 textures/happy-tree.png texture".into(),
+                elp.clone(),
+            )
+            .unwrap(),
+        );
+
+        self.commands
+            .append(&mut vec![load_basic_shader, load_test_tex]);
+    }
 
     fn process_command(&mut self, _cmd: Command) {}
 
@@ -45,6 +78,13 @@ impl App for Scene {
                     window_id: *window_id,
                 };
                 elp.send_event(CommandEvent::Render(render_desc)).unwrap();
+            }
+            winit::event::Event::UserEvent(event) => {
+                if let CommandEvent::Asset(asset) = event {
+                    if asset.asset_type == AssetType::Texture {
+                        info!("Yuppee");
+                    }
+                }
             }
             _ => {}
         }

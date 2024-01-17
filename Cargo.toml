@@ -47,4 +47,6 @@ web-sys = { version = "0.3", features = [
     'Response',
     'WebSocket',
     'MessageEvent',
+    'ProgressEvent',
+    'FileReader',
 ] }

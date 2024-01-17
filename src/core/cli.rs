@@ -56,9 +56,7 @@ impl CLI {
 
 #[async_trait(?Send)]
 impl App for CLI {
-    fn init(&mut self, mut init_commands: Vec<Command>) {
-        self.commands.append(&mut init_commands);
-    }
+    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
     fn update(&mut self) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
