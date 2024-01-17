@@ -10,6 +10,7 @@ use crate::{
 
 #[allow(dead_code)]
 pub struct AssetCommand {
+    pub processed: bool,
     pub command_type: CommandType,
     pub args: String,
     pub task: Option<Task<Vec<CommandEvent>>>,
@@ -31,10 +32,11 @@ impl AssetCommand {
                     _ => AssetCommand::display_help(),
                 }
             }
-            _ => AssetCommand::unsupported(args.clone()),
+            _ => None,
         };
 
         Self {
+            processed: task.is_some(),
             command_type,
             args,
             task,
@@ -233,13 +235,6 @@ impl AssetCommand {
         Some(Box::new(cmd))
     }
 
-    fn unsupported(_args: String) -> Option<Task<Vec<CommandEvent>>> {
-        //let args: Vec<&str> = args.split(' ').collect();
-
-        info!("Unsupported Asset Command!");
-        None
-    }
-
     // TODO: ALL COMMANDS NEED THIS
     fn display_help() -> Option<Task<Vec<CommandEvent>>> {
         info!("-from_server <port> <file_path>: Query the asset server for the specified asset");
@@ -251,6 +246,7 @@ impl AssetCommand {
 impl IntoCommand for AssetCommand {
     fn into_command(self) -> Command {
         Command {
+            processed: self.task.is_some(),
             app: "AssetServer".into(),
             command_type: self.command_type,
             args: Some(self.args),

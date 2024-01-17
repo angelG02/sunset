@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
-use tracing::info;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
+    keyboard::PhysicalKey,
     window::Window,
 };
 
@@ -31,6 +31,8 @@ pub struct Sun {
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
     pub pipelines: HashMap<String, wgpu::RenderPipeline>,
     pub shaders: HashMap<String, Asset>,
+
+    pub lined: bool,
 
     commands: Vec<Command>,
 }
@@ -124,6 +126,8 @@ impl Sun {
         win_id: winit::window::WindowId,
         name: String,
         shader_src: impl AsRef<str>,
+        vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
+        topology: wgpu::PrimitiveTopology,
     ) {
         let vp = self.viewports.get(&win_id).unwrap();
 
@@ -156,7 +160,7 @@ impl Sun {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: "vs_main",
-                        buffers: &[super::primitive::Vertex::desc()],
+                        buffers: vertex_buffer_layouts,
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
@@ -168,7 +172,7 @@ impl Sun {
                         })],
                     }),
                     primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        topology,
                         strip_index_format: None,
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode: Some(wgpu::Face::Back),
@@ -205,7 +209,11 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let test_pp = self.pipelines.get("basic_shader.wgsl");
+            let test_pp = if self.lined {
+                self.pipelines.get("line_shader.wgsl")
+            } else {
+                self.pipelines.get("basic_shader.wgsl")
+            };
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -268,6 +276,7 @@ impl Default for Sun {
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
             shaders: HashMap::new(),
+            lined: false,
 
             commands: vec![],
         }
@@ -278,7 +287,7 @@ impl Default for Sun {
 impl App for Sun {
     fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
-    fn process_command(&mut self, _cmd: Command) {}
+    fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
 
     async fn process_event(
         &mut self,
@@ -301,13 +310,18 @@ impl App for Sun {
                 CommandEvent::RequestPipeline(pipe_desc) => {
                     let pipe_desc = pipe_desc.clone();
 
-                    self.create_pipeline(pipe_desc.win_id, pipe_desc.name, pipe_desc.shader_src)
-                        .await;
+                    self.create_pipeline(
+                        pipe_desc.win_id,
+                        pipe_desc.name,
+                        pipe_desc.shader_src,
+                        &pipe_desc.vertex_buffer_layouts,
+                        pipe_desc.topology,
+                    )
+                    .await;
                 }
 
                 CommandEvent::Asset(asset) => {
                     if asset.asset_type == AssetType::Shader {
-                        info!("Asset!");
                         self.shaders.insert(asset.name.clone(), asset.clone());
                     }
                 }
@@ -343,10 +357,30 @@ impl App for Sun {
                                 shader_src: std::str::from_utf8(shader.data.clone().as_slice())
                                     .unwrap()
                                     .to_owned(),
+                                vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                                topology: if name.contains("line") {
+                                    wgpu::PrimitiveTopology::LineList
+                                } else {
+                                    wgpu::PrimitiveTopology::TriangleList
+                                },
                             };
 
                             elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
                                 .unwrap();
+                        }
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    device_id: _,
+                    event,
+                    is_synthetic: _,
+                } => {
+                    if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+                        && event.state == winit::event::ElementState::Released
+                    {
+                        self.lined = !self.lined;
+                        for vp in self.viewports.values() {
+                            vp.read().await.desc.window.request_redraw();
                         }
                     }
                 }

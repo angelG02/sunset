@@ -9,7 +9,7 @@ use crate::{
         command_queue::{Command, CommandType},
         events::CommandEvent,
     },
-    prelude::{asset_cmd::AssetCommand, AssetType},
+    prelude::AssetType,
 };
 use std::sync::Arc;
 
@@ -27,34 +27,36 @@ impl Scene {
 
 #[async_trait(?Send)]
 impl App for Scene {
-    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {
         let load_basic_shader = Command::new(
-            "default_scene",
+            "asset_server",
             CommandType::Get,
+            Some("get shaders/basic_shader.wgsl shader".into()),
             None,
-            AssetCommand::get_from_server(
-                "127.0.0.1:7878 shaders/basic_shader.wgsl shader".into(),
-                elp.clone(),
-            )
-            .unwrap(),
+        );
+
+        let load_line_shader = Command::new(
+            "asset_server",
+            CommandType::Get,
+            Some("get shaders/line_shader.wgsl shader".into()),
+            None,
         );
 
         let load_test_tex = Command::new(
-            "default_scene",
+            "asset_server",
             CommandType::Get,
+            Some("get textures/happy-tree.png texture".into()),
             None,
-            AssetCommand::get_from_server(
-                "127.0.0.1:7878 textures/happy-tree.png texture".into(),
-                elp.clone(),
-            )
-            .unwrap(),
         );
 
-        self.commands
-            .append(&mut vec![load_basic_shader, load_test_tex]);
+        self.commands.append(&mut vec![
+            load_basic_shader,
+            load_line_shader,
+            load_test_tex,
+        ]);
     }
 
-    fn process_command(&mut self, _cmd: Command) {}
+    fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         self.commands.drain(..).collect()
@@ -79,11 +81,9 @@ impl App for Scene {
                 };
                 elp.send_event(CommandEvent::Render(render_desc)).unwrap();
             }
-            winit::event::Event::UserEvent(event) => {
-                if let CommandEvent::Asset(asset) = event {
-                    if asset.asset_type == AssetType::Texture {
-                        info!("Yuppee");
-                    }
+            winit::event::Event::UserEvent(CommandEvent::Asset(asset)) => {
+                if asset.asset_type == AssetType::Texture {
+                    info!("Yuppee");
                 }
             }
             _ => {}

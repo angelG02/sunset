@@ -17,6 +17,8 @@ pub struct PipelineDesc {
     pub name: String,
     pub win_id: winit::window::WindowId,
     pub shader_src: String,
+    pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
+    pub topology: wgpu::PrimitiveTopology,
 }
 
 #[derive(Debug, Clone)]

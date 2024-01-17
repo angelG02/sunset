@@ -31,11 +31,12 @@ impl Windower {
             "open" => self.open(vec_args[1..].join(" ")),
             "close" => self.close(vec_args[1..].join(" ")),
             "help" => self.help(),
-            _ => self.unsupported(args.as_str()),
+            _ => Windower::unsupported(args.as_str()),
         };
 
         cmd.task = task;
         cmd.args = Some(args);
+        cmd.processed = true;
 
         self.commands.push(cmd);
     }
@@ -108,12 +109,6 @@ impl Windower {
         None
     }
 
-    pub fn unsupported(&self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
-        error!("Unsupported arguments {args}");
-        info!("type help for supported commands");
-        None
-    }
-
     pub fn create_window(
         &mut self,
         props: NewWindowProps,
@@ -144,6 +139,7 @@ impl App for Windower {
         let task = self.open("Sandbox 1920 1080".into());
 
         let cmd = Command {
+            processed: true,
             app: "Windower".into(),
             args: None,
             command_type: crate::core::command_queue::CommandType::Open,
@@ -157,7 +153,7 @@ impl App for Windower {
         self.commands.drain(..).collect()
     }
 
-    fn process_command(&mut self, cmd: Command) {
+    fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
         self.process_window_command(cmd);
     }
 

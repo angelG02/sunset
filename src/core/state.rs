@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use async_std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use once_cell::sync::Lazy;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
@@ -73,12 +73,32 @@ impl State {
     }
 
     async fn update() {
-        let mut frame_commands: Vec<Command> = vec![];
+        let mut frame_commands: Vec<Option<Command>> = vec![];
         {
             let apps = &mut State::write().await.apps;
 
             for app in apps.values_mut() {
-                frame_commands.append(&mut app.update());
+                let cmds = app.update();
+
+                for cmd in cmds {
+                    frame_commands.push(Some(cmd));
+                }
+            }
+        }
+
+        {
+            let mut state_lock = State::write().await;
+            let elp = state_lock.event_loop_proxy.clone().unwrap();
+
+            for command in &mut frame_commands {
+                if !command.as_ref().unwrap().processed {
+                    let cmd = command.take();
+                    if let Some(app) = state_lock.apps.get_mut(&cmd.as_ref().unwrap().app) {
+                        app.process_command(cmd.unwrap(), elp.clone());
+                    } else {
+                        error!("No app found with name: {}", &cmd.unwrap().app);
+                    }
+                }
             }
         }
 

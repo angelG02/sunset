@@ -27,6 +27,7 @@ impl CLI {
             _ => CLI::unsupported(args.as_str()),
         };
 
+        cmd.processed = true;
         cmd.task = task;
         cmd.args = Some(args);
 
@@ -47,11 +48,6 @@ impl CLI {
 
         Some(Box::new(cmd))
     }
-
-    fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>> {
-        error!("Unsupported arguments {args}");
-        None
-    }
 }
 
 #[async_trait(?Send)]
@@ -62,7 +58,7 @@ impl App for CLI {
         self.commands.drain(0..self.commands.len()).collect()
     }
 
-    fn process_command(&mut self, cmd: Command) {
+    fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
         self.process_cli_command(cmd);
     }
 
@@ -98,6 +94,7 @@ pub fn get_cli_command() -> Command {
     let args: Vec<&str> = command.split(' ').collect();
 
     Command {
+        processed: false,
         app: args[0].to_owned(),
         command_type: CommandType::TBD,
         args: Some(args[1..].join(" ")),
@@ -111,9 +108,12 @@ pub async fn run_cli() {
         info!("Command: {:?}", next_command);
 
         let mut state_lock = State::write().await;
+        let elp = state_lock.event_loop_proxy.clone().unwrap();
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
-            app.process_command(next_command);
+            app.process_command(next_command, elp);
+        } else {
+            error!("No app found with name: {}", next_command.app);
         }
     }
 }
