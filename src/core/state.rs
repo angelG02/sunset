@@ -203,7 +203,7 @@ pub async fn run() {
             let _delta_time = frame_time as f32 * 0.000000001;
             current_time = new_time;
 
-            info!("{_delta_time}s");
+            //info!("{_delta_time}s");
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 

@@ -18,11 +18,15 @@ use crate::{
     prelude::{events::RenderDesc, Asset, AssetType},
 };
 
+use super::buffer::SunBuffer;
+
 pub struct Sun {
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
     device: Option<Arc<wgpu::Device>>,
     queue: Option<wgpu::Queue>,
+    vertex_buffer: Option<SunBuffer>,
+    index_buffer: Option<SunBuffer>,
 
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
     pub pipelines: HashMap<String, wgpu::RenderPipeline>,
@@ -86,6 +90,25 @@ impl Sun {
         if self.device.is_none() {
             self.create_device().await;
         }
+        if self.vertex_buffer.is_none() {
+            let vb = SunBuffer::new_with_data(
+                "Vertex Buffer",
+                wgpu::BufferUsages::VERTEX,
+                bytemuck::cast_slice(crate::renderer::primitive::TEST_VERTICES),
+                self.device.as_ref().unwrap().clone(),
+            );
+
+            self.vertex_buffer = Some(vb);
+
+            let ib = SunBuffer::new_with_data(
+                "Index Buffer",
+                wgpu::BufferUsages::INDEX,
+                bytemuck::cast_slice(super::primitive::TEST_INDICES),
+                self.device.as_ref().unwrap().clone(),
+            );
+
+            self.index_buffer = Some(ib);
+        }
 
         let vp = vp_desc.build(
             self.adapter.as_ref().unwrap(),
@@ -133,7 +156,7 @@ impl Sun {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: "vs_main",
-                        buffers: &[],
+                        buffers: &[super::primitive::Vertex::desc()],
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
@@ -200,9 +223,21 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
+                rpass.set_vertex_buffer(
+                    0,
+                    self.vertex_buffer.as_ref().unwrap().get_buffer().slice(..),
+                );
+                rpass.set_index_buffer(
+                    self.index_buffer.as_ref().unwrap().get_buffer().slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
+
+                let indices = super::primitive::TEST_INDICES.len() as u32;
+                //let vertices = super::primitive::TEST_VERTICES.len();
+
                 if let Some(pp) = test_pp {
                     rpass.set_pipeline(pp);
-                    rpass.draw(0..3, 0..1);
+                    rpass.draw_indexed(0..indices, 0, 0..1);
                 }
             }
 
@@ -227,6 +262,8 @@ impl Default for Sun {
             adapter: None,
             device: None,
             queue: None,
+            vertex_buffer: None,
+            index_buffer: None,
 
             viewports: HashMap::new(),
             pipelines: HashMap::new(),

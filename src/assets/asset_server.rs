@@ -27,8 +27,8 @@ impl App for AssetServer {
 
     async fn process_event(
         &mut self,
-        event: &winit::event::Event<crate::core::events::CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
+        _event: &winit::event::Event<crate::core::events::CommandEvent>,
+        _elp: EventLoopProxy<CommandEvent>,
     ) {
     }
 
