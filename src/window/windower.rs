@@ -150,10 +150,15 @@ impl App for Windower {
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+        for window in self.windows.values() {
+            if window.has_focus() {
+                window.request_redraw();
+            }
+        }
         self.commands.drain(..).collect()
     }
 
-    fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
         self.process_window_command(cmd);
     }
 
@@ -208,7 +213,7 @@ fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
 
     web_sys::window()
         .and_then(|win| win.document())
-        .and_then(|doc| {
+        .and_then(|_doc| {
             let canvas = window.canvas().unwrap();
             canvas.style().set_css_text(canvas_css.as_str());
             body.append_child(&canvas).ok()?;

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use async_std::sync::RwLock;
 use winit::dpi::PhysicalSize;
 
-use crate::prelude::Asset;
+use crate::prelude::{primitive::Primitive, Asset};
 
 #[derive(Default, Debug, Clone)]
 pub struct NewWindowProps {
@@ -23,7 +22,7 @@ pub struct PipelineDesc {
 
 #[derive(Debug, Clone)]
 pub struct RenderDesc {
-    pub world: Arc<RwLock<bevy_ecs::world::World>>,
+    pub primitives: Vec<Primitive>,
     pub window_id: winit::window::WindowId,
 }
 

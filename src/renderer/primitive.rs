@@ -1,3 +1,6 @@
+use bevy_ecs::component::Component;
+use tracing::error;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Vertex {
@@ -18,6 +21,55 @@ impl Vertex {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum PrimitiveType {
+    Triangle,
+    Quad,
+    Line,
+    Point,
+}
+
+#[derive(Debug, Component, Clone)]
+pub struct Primitive {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u16>,
+    pub primitive_type: PrimitiveType,
+
+    pub uuid: uuid::Uuid,
+    pub initialized: bool,
+}
+
+impl Primitive {
+    pub fn new(vertices: Vec<Vertex>, indices: Vec<u16>, primitive_type: PrimitiveType) -> Self {
+        let uuid = uuid::Uuid::new_v4();
+
+        Self {
+            vertices,
+            indices,
+            primitive_type,
+            uuid,
+            initialized: false,
+        }
+    }
+    pub fn from_args(args: Vec<&str>) -> Option<Self> {
+        match args[0] {
+            "pentagon" => Some(Primitive::test_penta()),
+            _ => {
+                error!("No prefab for the specified shape: {}", args[0]);
+                None
+            }
+        }
+    }
+
+    pub fn test_penta() -> Self {
+        Primitive::new(
+            TEST_VERTICES.to_vec(),
+            TEST_INDICES.to_vec(),
+            PrimitiveType::Triangle,
+        )
     }
 }
 

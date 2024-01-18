@@ -1,27 +1,80 @@
-use async_std::sync::RwLock;
 use async_trait::async_trait;
-use tracing::info;
+use tracing::{error, info};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
     core::{
         app::App,
-        command_queue::{Command, CommandType},
-        events::CommandEvent,
+        command_queue::{Command, CommandType, Task},
+        events::{CommandEvent, RenderDesc},
     },
-    prelude::AssetType,
+    prelude::{name_component, primitive::Primitive, AssetType},
 };
-use std::sync::Arc;
 
 #[derive(Default)]
 pub struct Scene {
-    pub world: Arc<RwLock<bevy_ecs::world::World>>,
+    pub world: bevy_ecs::world::World,
     pub commands: Vec<Command>,
 }
 
 impl Scene {
     pub fn new() -> Self {
         Scene::default()
+    }
+
+    pub async fn process_scene_commands(&mut self, mut cmd: Command) {
+        let args = cmd.args.clone().unwrap();
+        let vec_args: Vec<&str> = args.split(' ').collect();
+
+        let task = match vec_args[0].to_ascii_lowercase().trim() {
+            "add" => self.add_entity(vec_args[1..].join(" ").as_str()).await,
+            _ => Scene::unsupported(args.as_str()),
+        };
+
+        cmd.processed = true;
+        cmd.task = task;
+        cmd.args = Some(args);
+
+        self.commands.push(cmd);
+    }
+
+    pub async fn add_entity(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
+        let vec_args: Vec<&str> = args.split("--").collect();
+
+        let components: Vec<(&str, Vec<&str>)> = vec_args
+            .iter()
+            .map(|&arg| {
+                let split: Vec<&str> = arg.split(' ').collect();
+                (split[0], split[1..].to_vec())
+            })
+            .filter(|(name, args)| !name.is_empty() && !args.is_empty())
+            .collect();
+
+        let mut entity = self.world.spawn_empty();
+
+        for (component_name, args) in components {
+            match component_name {
+                "name" => {
+                    let name = name_component::NameComponent::from_args(args);
+                    entity.insert(name);
+                }
+                "primitive" => {
+                    let primitive = Primitive::from_args(args);
+                    if let Some(primitive) = primitive {
+                        entity.insert(primitive);
+                    }
+                }
+                _ => {
+                    error!(
+                        "Unknown component: {} with args: {:?}",
+                        component_name, args
+                    );
+                }
+            }
+        }
+
+        //debug!("{:?}", components);
+        None
     }
 }
 
@@ -56,7 +109,9 @@ impl App for Scene {
         ]);
     }
 
-    fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
+    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+        self.process_scene_commands(cmd).await;
+    }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         self.commands.drain(..).collect()
@@ -73,10 +128,15 @@ impl App for Scene {
                 window_id,
                 event: winit::event::WindowEvent::RedrawRequested,
             } => {
-                use crate::core::events::RenderDesc;
+                let mut primitives_from_scene = self.world.query::<&Primitive>();
+                let mut primitives_for_renderer = vec![];
+
+                for primitive in primitives_from_scene.iter(&self.world) {
+                    primitives_for_renderer.push(primitive.clone());
+                }
 
                 let render_desc = RenderDesc {
-                    world: self.world.clone(),
+                    primitives: primitives_for_renderer,
                     window_id: *window_id,
                 };
                 elp.send_event(CommandEvent::Render(render_desc)).unwrap();

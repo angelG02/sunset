@@ -58,7 +58,7 @@ impl AssetServer {
 impl App for AssetServer {
     fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
-    fn process_command(&mut self, cmd: Command, elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command, elp: EventLoopProxy<CommandEvent>) {
         self.process_asset_command(cmd, elp)
     }
 

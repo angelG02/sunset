@@ -11,6 +11,6 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
         ("windower".into(), Box::new(windower)),
         ("sun".into(), Box::new(sun)),
         ("asset_server".into(), Box::new(asset_server)),
-        ("defautl_scene".into(), Box::new(scene)),
+        ("default_scene".into(), Box::new(scene)),
     ]
 }

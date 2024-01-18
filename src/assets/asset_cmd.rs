@@ -136,7 +136,7 @@ impl AssetCommand {
             let ws = web_sys::WebSocket::new(url.as_str()).unwrap();
             let cloned_ws = ws.clone();
 
-            let file_path_copy = file_path.clone().to_owned();
+            let file_path_copy = file_path.to_owned();
             let onopen_callback = Closure::<dyn FnMut()>::new(move || {
                 info!("socket opened");
                 match cloned_ws.send_with_str(
@@ -149,7 +149,6 @@ impl AssetCommand {
             ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
             onopen_callback.forget();
 
-            let file_path_copy = file_path.clone();
             let onmessage_callback =
                 Closure::<dyn FnMut(_)>::new(move |e: web_sys::MessageEvent| {
                     if let Ok(blob) = e.data().dyn_into::<web_sys::Blob>() {

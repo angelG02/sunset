@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
+use wgpu::BufferUsages;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
@@ -25,12 +26,12 @@ pub struct Sun {
     adapter: Option<wgpu::Adapter>,
     device: Option<Arc<wgpu::Device>>,
     queue: Option<wgpu::Queue>,
-    vertex_buffer: Option<SunBuffer>,
-    index_buffer: Option<SunBuffer>,
 
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
     pub pipelines: HashMap<String, wgpu::RenderPipeline>,
     pub shaders: HashMap<String, Asset>,
+    pub vertex_buffers: HashMap<uuid::Uuid, SunBuffer>,
+    pub index_buffers: HashMap<uuid::Uuid, SunBuffer>,
 
     pub lined: bool,
 
@@ -38,7 +39,7 @@ pub struct Sun {
 }
 
 impl Sun {
-    pub async fn create_adapter(&mut self, surface: &wgpu::Surface) {
+    pub async fn create_adapter(&mut self, surface: &wgpu::Surface<'static>) {
         let adapter = self
             .instance
             .as_ref()
@@ -62,8 +63,8 @@ impl Sun {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::downlevel_defaults(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
                 },
                 None,
             )
@@ -91,25 +92,6 @@ impl Sun {
         }
         if self.device.is_none() {
             self.create_device().await;
-        }
-        if self.vertex_buffer.is_none() {
-            let vb = SunBuffer::new_with_data(
-                "Vertex Buffer",
-                wgpu::BufferUsages::VERTEX,
-                bytemuck::cast_slice(crate::renderer::primitive::TEST_VERTICES),
-                self.device.as_ref().unwrap().clone(),
-            );
-
-            self.vertex_buffer = Some(vb);
-
-            let ib = SunBuffer::new_with_data(
-                "Index Buffer",
-                wgpu::BufferUsages::INDEX,
-                bytemuck::cast_slice(super::primitive::TEST_INDICES),
-                self.device.as_ref().unwrap().clone(),
-            );
-
-            self.index_buffer = Some(ib);
         }
 
         let vp = vp_desc.build(
@@ -195,7 +177,35 @@ impl Sun {
         self.pipelines.insert(name, pipeline);
     }
 
+    pub async fn generate_buffers(&mut self, render_desc: &RenderDesc) {
+        // NOTE (A40): This is very inefficient. Can generate them on event? Generate Buffers event? Remove Buffer event as well?
+        for primitive in &render_desc.primitives {
+            if !primitive.initialized {
+                let vb = SunBuffer::new_with_data(
+                    format!("Vertex Buffer: {}", primitive.uuid).as_str(),
+                    BufferUsages::VERTEX,
+                    bytemuck::cast_slice(primitive.vertices.as_slice()),
+                    self.device.as_ref().unwrap().clone(),
+                );
+
+                if !primitive.indices.is_empty() {
+                    let ib = SunBuffer::new_with_data(
+                        format!("Index Buffer: {}", primitive.uuid).as_str(),
+                        BufferUsages::INDEX,
+                        bytemuck::cast_slice(primitive.indices.as_slice()),
+                        self.device.as_ref().unwrap().clone(),
+                    );
+                    self.index_buffers.insert(primitive.uuid, ib);
+                }
+
+                self.vertex_buffers.insert(primitive.uuid, vb);
+            }
+        }
+    }
+
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
+        self.generate_buffers(&render_desc).await;
+
         if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
             let mut vp = viewport.write().await;
 
@@ -231,21 +241,19 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
-                rpass.set_vertex_buffer(
-                    0,
-                    self.vertex_buffer.as_ref().unwrap().get_buffer().slice(..),
-                );
-                rpass.set_index_buffer(
-                    self.index_buffer.as_ref().unwrap().get_buffer().slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
+                for primitive in &render_desc.primitives {
+                    if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
+                        rpass.set_vertex_buffer(0, vb.get_buffer().slice(..));
+                    }
 
-                let indices = super::primitive::TEST_INDICES.len() as u32;
-                //let vertices = super::primitive::TEST_VERTICES.len();
+                    if let Some(ib) = self.index_buffers.get(&primitive.uuid) {
+                        rpass.set_index_buffer(ib.get_buffer().slice(..), wgpu::IndexFormat::Uint16)
+                    }
 
-                if let Some(pp) = test_pp {
-                    rpass.set_pipeline(pp);
-                    rpass.draw_indexed(0..indices, 0, 0..1);
+                    if let Some(pp) = test_pp {
+                        rpass.set_pipeline(pp);
+                        rpass.draw_indexed(0..primitive.indices.len() as u32, 0, 0..1);
+                    }
                 }
             }
 
@@ -270,12 +278,13 @@ impl Default for Sun {
             adapter: None,
             device: None,
             queue: None,
-            vertex_buffer: None,
-            index_buffer: None,
 
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
             shaders: HashMap::new(),
+            vertex_buffers: HashMap::new(),
+            index_buffers: HashMap::new(),
+
             lined: false,
 
             commands: vec![],
@@ -287,7 +296,7 @@ impl Default for Sun {
 impl App for Sun {
     fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
 
-    fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
+    async fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
 
     async fn process_event(
         &mut self,
@@ -406,7 +415,7 @@ impl App for Sun {
 struct ViewportDesc {
     window: Arc<Window>,
     background: wgpu::Color,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
 }
 
 #[derive(Debug)]
@@ -417,7 +426,13 @@ pub struct Viewport {
 
 impl ViewportDesc {
     fn new(window: Arc<Window>, background: wgpu::Color, instance: &wgpu::Instance) -> Self {
-        let surface = unsafe { instance.create_surface(window.clone().as_ref()).unwrap() };
+        let surface = unsafe {
+            instance
+                .create_surface_unsafe(
+                    wgpu::SurfaceTargetUnsafe::from_window(window.clone().as_ref()).unwrap(),
+                )
+                .unwrap()
+        };
         Self {
             window,
             background,
@@ -437,6 +452,7 @@ impl ViewportDesc {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 3,
         };
 
         self.surface.configure(device, &config);

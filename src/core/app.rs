@@ -33,7 +33,7 @@ pub trait App {
     ///
     /// * `cmd` - The `Command` object to be processed (comes from the CLI App with only the argumets provided).
     ///
-    fn process_command(&mut self, cmd: Command, elp: EventLoopProxy<CommandEvent>);
+    async fn process_command(&mut self, cmd: Command, elp: EventLoopProxy<CommandEvent>);
 
     /// Processes an event asynchronously.
     ///

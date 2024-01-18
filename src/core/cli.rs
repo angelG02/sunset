@@ -58,7 +58,7 @@ impl App for CLI {
         self.commands.drain(0..self.commands.len()).collect()
     }
 
-    fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
         self.process_cli_command(cmd);
     }
 
@@ -111,7 +111,7 @@ pub async fn run_cli() {
         let elp = state_lock.event_loop_proxy.clone().unwrap();
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
-            app.process_command(next_command, elp);
+            app.process_command(next_command, elp).await;
         } else {
             error!("No app found with name: {}", next_command.app);
         }

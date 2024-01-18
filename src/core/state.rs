@@ -94,7 +94,7 @@ impl State {
                 if !command.as_ref().unwrap().processed {
                     let cmd = command.take();
                     if let Some(app) = state_lock.apps.get_mut(&cmd.as_ref().unwrap().app) {
-                        app.process_command(cmd.unwrap(), elp.clone());
+                        app.process_command(cmd.unwrap(), elp.clone()).await;
                     } else {
                         error!(
                             "No app found with name: {} to process: \"{}\"",

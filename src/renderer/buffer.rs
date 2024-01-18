@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use wgpu::{util::DeviceExt, Device};
 
+#[derive(Debug)]
 pub struct SunBuffer {
     pub label: String,
     pub usage: wgpu::BufferUsages,
