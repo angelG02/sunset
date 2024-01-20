@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use tracing::{error, info};
+use bevy_ecs::{entity::Entity, query::WorldQuery};
+use tracing::{debug, error, info};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
@@ -8,13 +9,20 @@ use crate::{
         command_queue::{Command, CommandType, Task},
         events::CommandEvent,
     },
-    prelude::{name_component, primitive::Primitive, sun::RenderDesc, AssetType},
+    prelude::{
+        name_component::NameComponent,
+        primitive::Primitive,
+        sun::{BufferDesc, RenderDesc},
+        util, AssetType,
+    },
 };
 
 #[derive(Default)]
 pub struct Scene {
     pub world: bevy_ecs::world::World,
     pub commands: Vec<Command>,
+
+    pub temp: bool,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
@@ -29,13 +37,8 @@ impl Scene {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         let task = match vec_args[0].to_ascii_lowercase().trim() {
-            "add" => {
-                self.add_entity(
-                    vec_args[1..].join(" ").as_str(),
-                    self.proxy.as_ref().unwrap().clone(),
-                )
-                .await
-            }
+            "add" => self.add_entity(vec_args[1..].join(" ").as_str()).await,
+            "remove" => self.remove_entity(vec_args[1..].join(" ")),
             _ => Scene::unsupported(args.as_str()),
         };
 
@@ -46,33 +49,23 @@ impl Scene {
         self.commands.push(cmd);
     }
 
-    pub async fn add_entity(
-        &mut self,
-        args: &str,
-        elp: EventLoopProxy<CommandEvent>,
-    ) -> Option<Task<Vec<CommandEvent>>> {
-        let vec_args: Vec<&str> = args.split("--").collect();
+    pub async fn add_entity(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
+        let components = util::extract_arguments(args);
 
-        let components: Vec<(&str, Vec<&str>)> = vec_args
-            .iter()
-            .map(|&arg| {
-                let split: Vec<&str> = arg.split(' ').collect();
-                (split[0], split[1..].to_vec())
-            })
-            .filter(|(name, args)| !name.is_empty() && !args.is_empty())
-            .collect();
+        let mut render_data = Vec::new();
 
         let mut entity = self.world.spawn_empty();
 
         for (component_name, args) in components {
             match component_name {
                 "name" => {
-                    let name = name_component::NameComponent::from_args(args);
+                    let name = NameComponent::from_args(args);
                     entity.insert(name);
                 }
                 "primitive" => {
-                    let primitive = Primitive::from_args(args, elp.clone());
+                    let primitive = Primitive::from_args(args);
                     if let Some(primitive) = primitive {
+                        render_data.push(primitive.clone());
                         entity.insert(primitive);
                     }
                 }
@@ -84,12 +77,70 @@ impl Scene {
                 }
             }
         }
-        None
+
+        let task = move || {
+            debug!("Add entity event!");
+            let event = CommandEvent::RequestCreateBuffer(BufferDesc {
+                data: render_data.clone(),
+            });
+
+            vec![event]
+        };
+
+        Some(Box::new(task))
     }
 
-    pub fn remove_entity() {}
+    pub fn query_world<Components: WorldQuery>(&mut self) -> Vec<Entity> {
+        let mut query = self.world.query::<(Entity, Components)>();
 
-    pub fn cleanup() {}
+        let mut entities: Vec<Entity> = Vec::new();
+
+        for (entity, _comp) in query.iter(&self.world) {
+            entities.push(entity);
+        }
+
+        entities
+    }
+
+    pub fn remove_entity(&mut self, name: String) -> Option<Task<Vec<CommandEvent>>> {
+        let entitis = self.query_world::<&NameComponent>();
+
+        let mut events = Vec::new();
+
+        for entity in entitis {
+            let mut flag = false;
+            if self.world.get::<NameComponent>(entity).unwrap().name == name {
+                if let Some(prim) = self.world.get::<Primitive>(entity) {
+                    events.push(CommandEvent::RequestDestroyBuffer(prim.uuid));
+                }
+                flag = true;
+            }
+
+            if flag {
+                self.world.despawn(entity);
+            }
+        }
+
+        let task = move || {
+            debug!("Add entity event!");
+
+            events.clone()
+        };
+
+        Some(Box::new(task))
+    }
+
+    pub fn cleanup(&mut self) {
+        let mut primitives_from_scene = self.world.query::<&Primitive>();
+
+        for primitive in primitives_from_scene.iter(&self.world) {
+            self.proxy
+                .as_ref()
+                .unwrap()
+                .send_event(CommandEvent::RequestDestroyBuffer(primitive.uuid))
+                .unwrap();
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -130,7 +181,27 @@ impl App for Scene {
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
-        self.commands.drain(..).collect()
+        let init =
+            unsafe { crate::core::state::ENGINE_INIT.load(std::sync::atomic::Ordering::SeqCst) };
+
+        if init {
+            if !self.temp {
+                self.temp = true;
+
+                let load_basic_pentagon = Command::new(
+                    "default_scene",
+                    CommandType::Get,
+                    Some("add --name Penta --primitive pentagon".into()),
+                    None,
+                );
+
+                self.commands.push(load_basic_pentagon);
+            }
+
+            self.commands.drain(..).collect()
+        } else {
+            vec![]
+        }
     }
 
     async fn process_event(
@@ -179,5 +250,7 @@ impl App for Scene {
 }
 
 impl Drop for Scene {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        self.cleanup();
+    }
 }

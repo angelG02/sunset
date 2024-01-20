@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use tracing::info;
 use winit::event_loop::EventLoopProxy;
 
 use crate::core::{
@@ -54,8 +53,6 @@ impl AssetServer {
     ) -> Option<Task<Vec<CommandEvent>>> {
         let vec_args: Vec<&str> = args.split(' ').collect();
         let args = format!("{} {} {}", self.server_addr, vec_args[0], vec_args[1]);
-
-        info!("{}", args);
 
         AssetCommand::get_from_server(args, elp)
     }

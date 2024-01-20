@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
     assets::{Asset, AssetType},
@@ -56,7 +56,7 @@ impl AssetCommand {
         // 127.0.0.1 shader.wgsl shader
         let cmd = move || {
             let args: Vec<&str> = args.split(' ').collect();
-            info!(
+            debug!(
                 "Get Asset {} of type {} from server {}",
                 args[1], args[2], args[0]
             );
@@ -65,11 +65,11 @@ impl AssetCommand {
             let asset_path = args[1].to_owned();
             let asset_name = args[1].split('/').last().unwrap().to_owned();
 
-            info!("path: {}, name: {}", asset_path, asset_name);
+            debug!("path: {}, name: {}", asset_path, asset_name);
 
             match TcpStream::connect(args[0]) {
                 Ok(mut stream) => {
-                    info!("Successfully connected to server {}", args[0]);
+                    debug!("Successfully connected to server {}", args[0]);
 
                     let request = format!("get {} {}\r\n\r\n", asset_path, asset_type);
 
@@ -116,7 +116,7 @@ impl AssetCommand {
             let elp_2 = elp.clone();
 
             let args: Vec<&str> = args.split(' ').collect();
-            info!("Get Asset {} from server {}", args[1], args[0]);
+            debug!("Get Asset {} from server {}", args[1], args[0]);
 
             let addr = args[0];
             let file_path = args[1];
@@ -138,12 +138,12 @@ impl AssetCommand {
 
             let file_path_copy = file_path.to_owned();
             let onopen_callback = Closure::<dyn FnMut()>::new(move || {
-                info!("socket opened");
+                debug!("socket opened");
                 match cloned_ws.send_with_str(
                     format!("{}{} {}", "get ", file_path_copy, request_type).as_str(),
                 ) {
-                    Ok(_) => info!("message successfully sent"),
-                    Err(err) => info!("error sending message: {:?}", err),
+                    Ok(_) => debug!("message successfully sent"),
+                    Err(err) => debug!("error sending message: {:?}", err),
                 }
             });
             ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
@@ -156,7 +156,7 @@ impl AssetCommand {
                         let asset_type_clone = asset_type.clone();
                         let asset_name_clone = asset_name.clone();
                         let asset_path_clone = asset_path.clone();
-                        info!("message event, received blob: {:?}", blob);
+                        debug!("message event, received blob: {:?}", blob);
                         // better alternative to juggling with FileReader is to use https://crates.io/crates/gloo-file
                         let fr = web_sys::FileReader::new().unwrap();
                         let fr_c = fr.clone();
@@ -180,8 +180,7 @@ impl AssetCommand {
                         fr.set_onloadend(Some(onloadend_cb.as_ref().unchecked_ref()));
                         fr.read_as_array_buffer(&blob).expect("blob not readable");
                         onloadend_cb.forget();
-                    }
-                    if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                    } else if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
                         //info!("message event, received Text: {:?}", txt);
                         let data: String = txt.into();
 
@@ -194,7 +193,7 @@ impl AssetCommand {
                             }))
                             .expect("Could not send event T-T");
                     } else {
-                        info!("message event, received Unknown: {:?}", e.data());
+                        debug!("message event, received Unknown: {:?}", e.data());
                     }
                 });
             // set message event handler on WebSocket
@@ -212,7 +211,7 @@ impl AssetCommand {
     fn get_local(args: String) -> Option<Task<Vec<CommandEvent>>> {
         let cmd = move || {
             let args: Vec<&str> = args.split(' ').collect();
-            info!("Get Asset {}", args[0]);
+            debug!("Get Asset {}", args[0]);
 
             let asset_path = args[1].to_owned();
             let asset_name = args[1].split('/').last().unwrap().to_owned();

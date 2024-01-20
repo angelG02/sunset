@@ -21,6 +21,7 @@ use crate::{
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 static mut RUNNING: AtomicBool = AtomicBool::new(true);
+pub static mut ENGINE_INIT: AtomicBool = AtomicBool::new(false);
 
 pub fn is_running() -> bool {
     unsafe { RUNNING.load(std::sync::atomic::Ordering::SeqCst) }
@@ -69,6 +70,9 @@ impl State {
                 app.init(event_loop_proxy.clone())
             }
         }
+
+        State::update().await;
+
         event_loop
     }
 
@@ -212,18 +216,7 @@ pub async fn run() {
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-            cfg_if::cfg_if! {
-                if #[cfg(not(target_arch = "wasm32"))] {
-                    runtime.block_on(State::update());
-                    runtime.block_on(State::process_events(event.clone()));
-                }
-                else {
-                    wasm_bindgen_futures::spawn_local(State::update());
-                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
-                }
-            }
-
-            if let winit::event::Event::UserEvent(event) = event {
+            if let winit::event::Event::UserEvent(event) = event.clone() {
                 match event {
                     CommandEvent::OpenWindow(props) => {
                         let window = winit::window::WindowBuilder::new()
@@ -245,6 +238,16 @@ pub async fn run() {
                         terminate();
                     }
                     _ => {}
+                }
+            }
+            cfg_if::cfg_if! {
+                if #[cfg(not(target_arch = "wasm32"))] {
+                    runtime.block_on(State::process_events(event.clone()));
+                    runtime.block_on(State::update());
+                }
+                else {
+                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
+                    wasm_bindgen_futures::spawn_local(State::update());
                 }
             }
         })
@@ -269,10 +272,11 @@ fn init_trace() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
         .without_time()
-        .with_file(false)
         .with_target(false)
         .with_thread_ids(true)
         .with_thread_names(true)
+        .with_file(false)
+        .with_line_number(false)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

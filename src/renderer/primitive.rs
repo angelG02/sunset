@@ -1,10 +1,5 @@
 use bevy_ecs::component::Component;
 use tracing::error;
-use winit::event_loop::EventLoopProxy;
-
-use crate::prelude::events::CommandEvent;
-
-use super::sun::BufferDesc;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -51,17 +46,19 @@ impl Primitive {
     pub fn new(vertices: Vec<Vertex>, indices: Vec<u16>, primitive_type: PrimitiveType) -> Self {
         let uuid = uuid::Uuid::new_v4();
 
-        Self {
+        let primitive = Self {
             vertices,
             indices,
             primitive_type,
             uuid,
             initialized: false,
-        }
+        };
+
+        primitive
     }
-    pub fn from_args(args: Vec<&str>, elp: EventLoopProxy<CommandEvent>) -> Option<Self> {
+    pub fn from_args(args: Vec<&str>) -> Option<Self> {
         match args[0] {
-            "pentagon" => Some(Primitive::test_penta(elp.clone())),
+            "pentagon" => Some(Primitive::test_penta()),
             _ => {
                 error!("No prefab for the specified shape: {}", args[0]);
                 None
@@ -69,18 +66,12 @@ impl Primitive {
         }
     }
 
-    pub fn test_penta(elp: EventLoopProxy<CommandEvent>) -> Self {
+    pub fn test_penta() -> Self {
         let primitive = Primitive::new(
             TEST_VERTICES.to_vec(),
             TEST_INDICES.to_vec(),
             PrimitiveType::Triangle,
         );
-
-        let event = CommandEvent::RequestCreateBuffer(BufferDesc {
-            data: vec![primitive.clone()],
-        });
-
-        elp.send_event(event).unwrap();
 
         primitive
     }

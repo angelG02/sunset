@@ -1,13 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
-use crate::core::{
-    app::App,
-    command_queue::{Command, Task},
-    events::{CommandEvent, NewWindowProps},
+use crate::{
+    core::{
+        app::App,
+        command_queue::{Command, Task},
+        events::{CommandEvent, NewWindowProps},
+    },
+    prelude::command_queue::CommandType,
 };
 
 pub struct WinID {
@@ -60,8 +63,6 @@ impl Windower {
                     height: args_vec[2].parse::<u32>().unwrap_or(1024),
                 },
             });
-
-            info!("{event:?}");
 
             vec![event]
         };
@@ -117,7 +118,7 @@ impl Windower {
         self.windows.insert(window.id(), Arc::new(window));
         self.window_names.insert(win_id, props.name.clone());
 
-        info!("Created window {}: {:?}", props.name.clone(), win_id);
+        debug!("Created window {}: {:?}", props.name.clone(), win_id);
         let window = self.windows.get(&win_id).unwrap();
 
         self.proxy
@@ -144,7 +145,7 @@ impl App for Windower {
             processed: true,
             app: "Windower".into(),
             args: None,
-            command_type: crate::core::command_queue::CommandType::Open,
+            command_type: CommandType::Open,
             task,
         };
 

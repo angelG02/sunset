@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
+use tracing::info;
 use wgpu::BufferUsages;
 use winit::{
     event::{Event, WindowEvent},
@@ -16,7 +17,7 @@ use crate::{
         command_queue::Command,
         events::{CommandEvent, PipelineDesc},
     },
-    prelude::{Asset, AssetType},
+    prelude::{state, Asset, AssetType},
 };
 
 #[derive(Debug, Clone)]
@@ -105,6 +106,8 @@ impl Sun {
         }
         if self.device.is_none() {
             self.create_device().await;
+            unsafe { state::ENGINE_INIT.store(true, std::sync::atomic::Ordering::SeqCst) }
+            info!("Initialized Render Engine!")
         }
 
         let vp = vp_desc.build(
@@ -212,6 +215,23 @@ impl Sun {
 
                 self.vertex_buffers.insert(primitive.uuid, vb);
             }
+        }
+    }
+
+    pub fn destroy_buffer(&mut self, id: uuid::Uuid) {
+        if self.vertex_buffers.contains_key(&id) {
+            self.vertex_buffers
+                .remove(&id)
+                .unwrap()
+                .get_buffer()
+                .destroy();
+        }
+        if self.index_buffers.contains_key(&id) {
+            self.index_buffers
+                .remove(&id)
+                .unwrap()
+                .get_buffer()
+                .destroy();
         }
     }
 
