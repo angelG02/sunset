@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bevy_ecs::{entity::Entity, query::WorldQuery};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
@@ -12,8 +12,9 @@ use crate::{
     prelude::{
         name_component::NameComponent,
         primitive::Primitive,
+        state::initialized,
         sun::{BufferDesc, RenderDesc},
-        util, AssetType,
+        util,
     },
 };
 
@@ -148,20 +149,6 @@ impl App for Scene {
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 
-        let load_basic_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            Some("get shaders/basic_shader.wgsl shader".into()),
-            None,
-        );
-
-        let load_line_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            Some("get shaders/line_shader.wgsl shader".into()),
-            None,
-        );
-
         let load_test_tex = Command::new(
             "asset_server",
             CommandType::Get,
@@ -169,11 +156,7 @@ impl App for Scene {
             None,
         );
 
-        self.commands.append(&mut vec![
-            load_basic_shader,
-            load_line_shader,
-            load_test_tex,
-        ]);
+        self.commands.append(&mut vec![load_test_tex]);
     }
 
     async fn process_command(&mut self, cmd: Command) {
@@ -181,10 +164,7 @@ impl App for Scene {
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
-        let init =
-            unsafe { crate::core::state::ENGINE_INIT.load(std::sync::atomic::Ordering::SeqCst) };
-
-        if init {
+        if initialized() {
             if !self.temp {
                 self.temp = true;
 
@@ -230,11 +210,6 @@ impl App for Scene {
                     .unwrap()
                     .send_event(CommandEvent::Render(render_desc))
                     .unwrap();
-            }
-            winit::event::Event::UserEvent(CommandEvent::Asset(asset)) => {
-                if asset.asset_type == AssetType::Texture {
-                    info!("Yuppee");
-                }
             }
             _ => {}
         }

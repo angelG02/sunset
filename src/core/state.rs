@@ -23,6 +23,16 @@ static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 static mut RUNNING: AtomicBool = AtomicBool::new(true);
 pub static mut ENGINE_INIT: AtomicBool = AtomicBool::new(false);
 
+pub fn initialized() -> bool {
+    unsafe { ENGINE_INIT.load(std::sync::atomic::Ordering::SeqCst) }
+}
+
+pub fn finish_init() {
+    unsafe {
+        ENGINE_INIT.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 pub fn is_running() -> bool {
     unsafe { RUNNING.load(std::sync::atomic::Ordering::SeqCst) }
 }

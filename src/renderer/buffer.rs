@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use wgpu::{util::DeviceExt, Device};
 
 #[derive(Debug)]
@@ -16,7 +14,7 @@ impl SunBuffer {
         label: &str,
         usage: wgpu::BufferUsages,
         contents: &[u8],
-        device: Arc<Device>,
+        device: &Device,
     ) -> Self {
         let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(label),
@@ -44,7 +42,7 @@ impl SunBuffer {
         self.dirty = dirty;
     }
 
-    pub fn regenerate(self, new_contents: &[u8], device: Arc<Device>) -> Self {
+    pub fn regenerate(self, new_contents: &[u8], device: &Device) -> Self {
         SunBuffer::new_with_data(&self.label, self.usage, new_contents, device)
     }
 }
