@@ -16,10 +16,21 @@ use crate::{
         command_queue::Command,
         events::{CommandEvent, PipelineDesc},
     },
-    prelude::{events::RenderDesc, Asset, AssetType},
+    prelude::{Asset, AssetType},
 };
 
-use super::buffer::SunBuffer;
+#[derive(Debug, Clone)]
+pub struct RenderDesc {
+    pub primitives: Vec<Primitive>,
+    pub window_id: winit::window::WindowId,
+}
+
+#[derive(Debug, Clone)]
+pub struct BufferDesc {
+    pub data: Vec<Primitive>,
+}
+
+use super::{buffer::SunBuffer, primitive::Primitive};
 
 pub struct Sun {
     instance: Option<wgpu::Instance>,
@@ -36,6 +47,8 @@ pub struct Sun {
     pub lined: bool,
 
     commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl Sun {
@@ -177,9 +190,8 @@ impl Sun {
         self.pipelines.insert(name, pipeline);
     }
 
-    pub async fn generate_buffers(&mut self, render_desc: &RenderDesc) {
-        // NOTE (A40): This is very inefficient. Can generate them on event? Generate Buffers event? Remove Buffer event as well?
-        for primitive in &render_desc.primitives {
+    pub async fn generate_buffers(&mut self, buf_desc: &BufferDesc) {
+        for primitive in &buf_desc.data {
             if !primitive.initialized {
                 let vb = SunBuffer::new_with_data(
                     format!("Vertex Buffer: {}", primitive.uuid).as_str(),
@@ -204,8 +216,6 @@ impl Sun {
     }
 
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
-        self.generate_buffers(&render_desc).await;
-
         if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
             let mut vp = viewport.write().await;
 
@@ -288,20 +298,23 @@ impl Default for Sun {
             lined: false,
 
             commands: vec![],
+
+            proxy: None,
         }
     }
 }
 
 #[async_trait(?Send)]
 impl App for Sun {
-    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone());
+    }
 
-    async fn process_command(&mut self, _cmd: Command, _elp: EventLoopProxy<CommandEvent>) {}
+    async fn process_command(&mut self, _cmd: Command) {}
 
     async fn process_event(
         &mut self,
         event: &winit::event::Event<crate::core::events::CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
     ) {
         if let Event::UserEvent(event) = event {
             match event {
@@ -334,6 +347,8 @@ impl App for Sun {
                         self.shaders.insert(asset.name.clone(), asset.clone());
                     }
                 }
+
+                CommandEvent::RequestCreateBuffer(desc) => self.generate_buffers(desc).await,
                 _ => {}
             }
         }
@@ -374,7 +389,10 @@ impl App for Sun {
                                 },
                             };
 
-                            elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
+                            self.proxy
+                                .as_ref()
+                                .unwrap()
+                                .send_event(CommandEvent::RequestPipeline(pipe_desc))
                                 .unwrap();
                         }
                     }

@@ -20,6 +20,8 @@ pub struct Windower {
     pub windows: HashMap<winit::window::WindowId, Arc<winit::window::Window>>,
     pub window_names: HashMap<winit::window::WindowId, String>,
     pub commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl Windower {
@@ -109,12 +111,7 @@ impl Windower {
         None
     }
 
-    pub fn create_window(
-        &mut self,
-        props: NewWindowProps,
-        window: winit::window::Window,
-        elp: EventLoopProxy<CommandEvent>,
-    ) {
+    pub fn create_window(&mut self, props: NewWindowProps, window: winit::window::Window) {
         let win_id = window.id();
 
         self.windows.insert(window.id(), Arc::new(window));
@@ -123,7 +120,10 @@ impl Windower {
         info!("Created window {}: {:?}", props.name.clone(), win_id);
         let window = self.windows.get(&win_id).unwrap();
 
-        elp.send_event(CommandEvent::RequestSurface(Arc::clone(window)))
+        self.proxy
+            .as_ref()
+            .unwrap()
+            .send_event(CommandEvent::RequestSurface(Arc::clone(window)))
             .expect("Failed to send event!");
 
         #[cfg(target_arch = "wasm32")]
@@ -135,7 +135,9 @@ impl Windower {
 
 #[async_trait(?Send)]
 impl App for Windower {
-    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone());
+
         let task = self.open("Sandbox 1920 1080".into());
 
         let cmd = Command {
@@ -158,15 +160,11 @@ impl App for Windower {
         self.commands.drain(..).collect()
     }
 
-    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command) {
         self.process_window_command(cmd);
     }
 
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        _elp: EventLoopProxy<CommandEvent>,
-    ) {
+    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>) {
         if let winit::event::Event::WindowEvent {
             window_id,
             event: winit::event::WindowEvent::CloseRequested,

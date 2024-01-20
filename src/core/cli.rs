@@ -9,11 +9,9 @@ use crate::core::{
     state::{is_running, State},
 };
 
-pub struct CLIContext;
-
 pub struct CLI {
     pub commands: Vec<Command>,
-    pub context: CLIContext,
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl CLI {
@@ -52,22 +50,19 @@ impl CLI {
 
 #[async_trait(?Send)]
 impl App for CLI {
-    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {}
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp);
+    }
 
     fn update(&mut self) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
     }
 
-    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command) {
         self.process_cli_command(cmd);
     }
 
-    async fn process_event(
-        &mut self,
-        _event: &winit::event::Event<CommandEvent>,
-        _elp: EventLoopProxy<CommandEvent>,
-    ) {
-    }
+    async fn process_event(&mut self, _event: &winit::event::Event<CommandEvent>) {}
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -108,10 +103,9 @@ pub async fn run_cli() {
         info!("Command: {:?}", next_command);
 
         let mut state_lock = State::write().await;
-        let elp = state_lock.event_loop_proxy.clone().unwrap();
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
-            app.process_command(next_command, elp).await;
+            app.process_command(next_command).await;
         } else {
             error!("No app found with name: {}", next_command.app);
         }

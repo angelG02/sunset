@@ -88,13 +88,12 @@ impl State {
 
         {
             let mut state_lock = State::write().await;
-            let elp = state_lock.event_loop_proxy.clone().unwrap();
 
             for command in &mut frame_commands {
                 if !command.as_ref().unwrap().processed {
                     let cmd = command.take();
                     if let Some(app) = state_lock.apps.get_mut(&cmd.as_ref().unwrap().app) {
-                        app.process_command(cmd.unwrap(), elp.clone()).await;
+                        app.process_command(cmd.unwrap()).await;
                     } else {
                         error!(
                             "No app found with name: {} to process: \"{}\"",
@@ -124,22 +123,15 @@ impl State {
     }
 
     pub async fn process_events(event: winit::event::Event<CommandEvent>) {
-        let elp: EventLoopProxy<CommandEvent>;
-        {
-            elp = State::get_proxy().await;
-        }
-
         let apps = &mut State::write().await.apps;
 
         for app in apps.values_mut() {
-            app.process_event(&event, elp.clone()).await;
+            app.process_event(&event).await;
         }
     }
 
     pub async fn on_new_window_requested(props: NewWindowProps, window: winit::window::Window) {
         let mut state_lock = State::write().await;
-
-        let elp = state_lock.event_loop_proxy.clone().unwrap();
 
         let windower = state_lock
             .apps
@@ -149,7 +141,7 @@ impl State {
             .downcast_mut::<Windower>()
             .unwrap();
 
-        windower.create_window(props, window, elp);
+        windower.create_window(props, window);
     }
 
     pub async fn get_proxy() -> winit::event_loop::EventLoopProxy<CommandEvent> {

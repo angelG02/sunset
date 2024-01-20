@@ -1,5 +1,10 @@
 use bevy_ecs::component::Component;
 use tracing::error;
+use winit::event_loop::EventLoopProxy;
+
+use crate::prelude::events::CommandEvent;
+
+use super::sun::BufferDesc;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -54,9 +59,9 @@ impl Primitive {
             initialized: false,
         }
     }
-    pub fn from_args(args: Vec<&str>) -> Option<Self> {
+    pub fn from_args(args: Vec<&str>, elp: EventLoopProxy<CommandEvent>) -> Option<Self> {
         match args[0] {
-            "pentagon" => Some(Primitive::test_penta()),
+            "pentagon" => Some(Primitive::test_penta(elp.clone())),
             _ => {
                 error!("No prefab for the specified shape: {}", args[0]);
                 None
@@ -64,12 +69,20 @@ impl Primitive {
         }
     }
 
-    pub fn test_penta() -> Self {
-        Primitive::new(
+    pub fn test_penta(elp: EventLoopProxy<CommandEvent>) -> Self {
+        let primitive = Primitive::new(
             TEST_VERTICES.to_vec(),
             TEST_INDICES.to_vec(),
             PrimitiveType::Triangle,
-        )
+        );
+
+        let event = CommandEvent::RequestCreateBuffer(BufferDesc {
+            data: vec![primitive.clone()],
+        });
+
+        elp.send_event(event).unwrap();
+
+        primitive
     }
 }
 

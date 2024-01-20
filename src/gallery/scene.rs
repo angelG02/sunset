@@ -6,15 +6,17 @@ use crate::{
     core::{
         app::App,
         command_queue::{Command, CommandType, Task},
-        events::{CommandEvent, RenderDesc},
+        events::CommandEvent,
     },
-    prelude::{name_component, primitive::Primitive, AssetType},
+    prelude::{name_component, primitive::Primitive, sun::RenderDesc, AssetType},
 };
 
 #[derive(Default)]
 pub struct Scene {
     pub world: bevy_ecs::world::World,
     pub commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl Scene {
@@ -27,7 +29,13 @@ impl Scene {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         let task = match vec_args[0].to_ascii_lowercase().trim() {
-            "add" => self.add_entity(vec_args[1..].join(" ").as_str()).await,
+            "add" => {
+                self.add_entity(
+                    vec_args[1..].join(" ").as_str(),
+                    self.proxy.as_ref().unwrap().clone(),
+                )
+                .await
+            }
             _ => Scene::unsupported(args.as_str()),
         };
 
@@ -38,7 +46,11 @@ impl Scene {
         self.commands.push(cmd);
     }
 
-    pub async fn add_entity(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
+    pub async fn add_entity(
+        &mut self,
+        args: &str,
+        elp: EventLoopProxy<CommandEvent>,
+    ) -> Option<Task<Vec<CommandEvent>>> {
         let vec_args: Vec<&str> = args.split("--").collect();
 
         let components: Vec<(&str, Vec<&str>)> = vec_args
@@ -59,7 +71,7 @@ impl Scene {
                     entity.insert(name);
                 }
                 "primitive" => {
-                    let primitive = Primitive::from_args(args);
+                    let primitive = Primitive::from_args(args, elp.clone());
                     if let Some(primitive) = primitive {
                         entity.insert(primitive);
                     }
@@ -72,15 +84,19 @@ impl Scene {
                 }
             }
         }
-
-        //debug!("{:?}", components);
         None
     }
+
+    pub fn remove_entity() {}
+
+    pub fn cleanup() {}
 }
 
 #[async_trait(?Send)]
 impl App for Scene {
-    fn init(&mut self, _elp: EventLoopProxy<CommandEvent>) {
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone());
+
         let load_basic_shader = Command::new(
             "asset_server",
             CommandType::Get,
@@ -109,7 +125,7 @@ impl App for Scene {
         ]);
     }
 
-    async fn process_command(&mut self, cmd: Command, _elp: EventLoopProxy<CommandEvent>) {
+    async fn process_command(&mut self, cmd: Command) {
         self.process_scene_commands(cmd).await;
     }
 
@@ -120,7 +136,6 @@ impl App for Scene {
     async fn process_event(
         &mut self,
         event: &winit::event::Event<crate::core::events::CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
     ) {
         #[allow(clippy::single_match)]
         match event {
@@ -139,7 +154,11 @@ impl App for Scene {
                     primitives: primitives_for_renderer,
                     window_id: *window_id,
                 };
-                elp.send_event(CommandEvent::Render(render_desc)).unwrap();
+                self.proxy
+                    .as_ref()
+                    .unwrap()
+                    .send_event(CommandEvent::Render(render_desc))
+                    .unwrap();
             }
             winit::event::Event::UserEvent(CommandEvent::Asset(asset)) => {
                 if asset.asset_type == AssetType::Texture {
@@ -157,4 +176,8 @@ impl App for Scene {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
+}
+
+impl Drop for Scene {
+    fn drop(&mut self) {}
 }

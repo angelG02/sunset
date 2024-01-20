@@ -33,7 +33,7 @@ pub trait App {
     ///
     /// * `cmd` - The `Command` object to be processed (comes from the CLI App with only the argumets provided).
     ///
-    async fn process_command(&mut self, cmd: Command, elp: EventLoopProxy<CommandEvent>);
+    async fn process_command(&mut self, cmd: Command);
 
     /// Processes an event asynchronously.
     ///
@@ -42,11 +42,7 @@ pub trait App {
     /// * `event` - an event dispatched from the event loop.
     /// * `elp` - The event loop proxy (can be used to send other events when the current one has been handled).
     ///
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
-    );
+    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>);
 
     fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>>
     where
