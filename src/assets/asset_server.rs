@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tracing::error;
 use winit::event_loop::EventLoopProxy;
 
 use crate::core::{
@@ -52,6 +53,12 @@ impl AssetServer {
         elp: EventLoopProxy<CommandEvent>,
     ) -> Option<Task<Vec<CommandEvent>>> {
         let vec_args: Vec<&str> = args.split(' ').collect();
+
+        if vec_args.len() < 2 {
+            error!("Expected 2 arguments to command <get>!");
+            return None;
+        }
+
         let args = format!("{} {} {}", self.server_addr, vec_args[0], vec_args[1]);
 
         AssetCommand::get_from_server(args, elp)

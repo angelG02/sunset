@@ -48,10 +48,17 @@ pub struct Primitive {
 
     pub uuid: uuid::Uuid,
     pub initialized: bool,
+
+    pub temp_diffuse: Option<String>,
 }
 
 impl Primitive {
-    pub fn new(vertices: Vec<Vertex>, indices: Vec<u16>, primitive_type: PrimitiveType) -> Self {
+    pub fn new(
+        vertices: Vec<Vertex>,
+        indices: Vec<u16>,
+        primitive_type: PrimitiveType,
+        texture_name: Option<String>,
+    ) -> Self {
         let uuid = uuid::Uuid::new_v4();
 
         let primitive = Self {
@@ -60,6 +67,7 @@ impl Primitive {
             primitive_type,
             uuid,
             initialized: false,
+            temp_diffuse: texture_name,
         };
 
         primitive
@@ -79,6 +87,7 @@ impl Primitive {
             TEST_VERTICES.to_vec(),
             TEST_INDICES.to_vec(),
             PrimitiveType::Triangle,
+            None,
         );
 
         primitive

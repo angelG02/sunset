@@ -6,6 +6,7 @@ pub struct GPUTexture {
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 
+    pub name: String,
     pub uuid: uuid::Uuid,
 }
 
@@ -77,6 +78,7 @@ impl GPUTexture {
             view,
             sampler,
             uuid: uuid::Uuid::new_v4(),
+            name: label.unwrap().to_owned(),
         })
     }
 }

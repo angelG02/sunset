@@ -53,6 +53,8 @@ impl AssetCommand {
             net::TcpStream,
         };
 
+        use tracing::error;
+
         // 127.0.0.1 shader.wgsl shader
         let cmd = move || {
             let args: Vec<&str> = args.split(' ').collect();
@@ -78,6 +80,15 @@ impl AssetCommand {
                     let mut data = Vec::new();
 
                     stream.read_to_end(&mut data).expect("Could not read data!");
+
+                    let try_convert_string = std::str::from_utf8(&data);
+
+                    if let Ok(res) = try_convert_string {
+                        if res.contains("File not found") {
+                            error!("File not found: {}", asset_path);
+                            return vec![];
+                        }
+                    }
 
                     let asset_type = match asset_type.as_str() {
                         "shader" => AssetType::Shader,

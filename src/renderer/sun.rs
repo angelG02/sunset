@@ -16,6 +16,9 @@ use crate::{
     prelude::{command_queue::CommandType, state, Asset, AssetType},
 };
 
+pub type TextureID = uuid::Uuid;
+pub type PrimitiveID = uuid::Uuid;
+
 #[derive(Debug, Clone)]
 pub struct RenderDesc {
     pub primitives: Vec<Primitive>,
@@ -49,16 +52,16 @@ pub struct Sun {
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
     pub pipelines: HashMap<String, wgpu::RenderPipeline>,
     pub shaders: HashMap<String, Asset>,
-    pub vertex_buffers: HashMap<uuid::Uuid, SunBuffer>,
-    pub index_buffers: HashMap<uuid::Uuid, SunBuffer>,
+    pub vertex_buffers: HashMap<PrimitiveID, SunBuffer>,
+    pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
 
     pub test_texture: Option<GPUTexture>,
 
     pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
-    pub bind_groups: HashMap<uuid::Uuid, wgpu::BindGroup>,
+    pub bind_groups: HashMap<TextureID, wgpu::BindGroup>,
 
     // This needs to go in model
-    pub texture_ids: Vec<uuid::Uuid>,
+    pub texture_ids: HashMap<String, TextureID>,
 
     pub lined: bool,
 
@@ -255,7 +258,7 @@ impl Sun {
         }
     }
 
-    pub fn destroy_buffer(&mut self, id: uuid::Uuid) {
+    pub fn destroy_buffer(&mut self, id: PrimitiveID) {
         if self.vertex_buffers.contains_key(&id) {
             self.vertex_buffers
                 .remove(&id)
@@ -312,14 +315,26 @@ impl Sun {
                     if let Some(pp) = test_pp {
                         rpass.set_pipeline(pp);
 
-                        for i in 0..self.texture_ids.len() {
-                            rpass.set_bind_group(
-                                i as u32,
-                                self.bind_groups
-                                    .get(self.texture_ids.get(i).unwrap())
-                                    .unwrap(),
-                                &[],
-                            );
+                        // for i in 0..self.texture_ids.len() {
+                        //     rpass.set_bind_group(
+                        //         i as u32,
+                        //         self.bind_groups
+                        //             .get(self.texture_ids.get(i).unwrap())
+                        //             .unwrap(),
+                        //         &[],
+                        //     );
+                        // }
+
+                        if let Some(tex_name) = &primitive.temp_diffuse {
+                            let tex_id = self.texture_ids.get(tex_name).unwrap();
+                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+
+                            rpass.set_bind_group(0, bind_group, &[]);
+                        } else {
+                            let tex_id = self.texture_ids.get("missing.jpg").unwrap();
+                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+
+                            rpass.set_bind_group(0, bind_group, &[]);
                         }
 
                         if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
@@ -370,7 +385,7 @@ impl Default for Sun {
             bind_groups: HashMap::new(),
             bind_group_layouts: HashMap::new(),
 
-            texture_ids: Vec::new(),
+            texture_ids: HashMap::new(),
 
             lined: false,
 
@@ -442,6 +457,7 @@ impl App for Sun {
                     if asset.asset_type == AssetType::Shader {
                         self.shaders.insert(asset.name.clone(), asset.clone());
                     } else if asset.asset_type == AssetType::Texture {
+                        let asset = asset.clone();
                         self.test_texture = Some(
                             GPUTexture::from_bytes(
                                 self.device.as_ref().unwrap(),
@@ -452,8 +468,10 @@ impl App for Sun {
                             .unwrap(),
                         );
 
-                        self.texture_ids
-                            .push(self.test_texture.as_ref().unwrap().uuid);
+                        self.texture_ids.insert(
+                            self.test_texture.as_ref().unwrap().name.clone(),
+                            self.test_texture.as_ref().unwrap().uuid,
+                        );
 
                         let test_diffuse_bind_group = self
                             .device

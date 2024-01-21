@@ -23,8 +23,6 @@ pub struct Scene {
     pub world: bevy_ecs::world::World,
     pub commands: Vec<Command>,
 
-    pub temp: bool,
-
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
@@ -39,7 +37,15 @@ impl Scene {
 
         let task = match vec_args[0].to_ascii_lowercase().trim() {
             "add" => self.add_entity(vec_args[1..].join(" ").as_str()).await,
-            "remove" => self.remove_entity(vec_args[1..].join(" ")),
+            "remove" => self.remove_entity(vec_args[1..].join(" ").as_str()),
+            "set_texture" => {
+                if vec_args[1..].len() >= 2 {
+                    self.set_texture(vec_args[1], vec_args[2])
+                } else {
+                    error!("Expected 2 or more arguments");
+                    None
+                }
+            }
             _ => Scene::unsupported(args.as_str()),
         };
 
@@ -91,6 +97,18 @@ impl Scene {
         Some(Box::new(task))
     }
 
+    pub fn get_entity_with_name(&mut self, name: &str) -> Option<Entity> {
+        let entities_with_name = self.query_world::<&NameComponent>();
+
+        for entity in entities_with_name {
+            let name_cmp = self.world.get::<NameComponent>(entity).unwrap();
+            if name == name_cmp.name {
+                return Some(entity);
+            }
+        }
+        None
+    }
+
     pub fn query_world<Components: WorldQuery>(&mut self) -> Vec<Entity> {
         let mut query = self.world.query::<(Entity, Components)>();
 
@@ -103,7 +121,27 @@ impl Scene {
         entities
     }
 
-    pub fn remove_entity(&mut self, name: String) -> Option<Task<Vec<CommandEvent>>> {
+    pub fn set_texture(
+        &mut self,
+        tex_name: &str,
+        entity_name: &str,
+    ) -> Option<Task<Vec<CommandEvent>>> {
+        let entity = self.get_entity_with_name(entity_name);
+        if let Some(e) = entity {
+            let primitive = self.world.get_mut::<Primitive>(e);
+            if let Some(mut p) = primitive {
+                p.temp_diffuse = Some(tex_name.to_owned());
+            } else {
+                error!("Entity <{}> has no primitive component!", entity_name);
+            }
+        } else {
+            error!("Entity <{}> not found!", entity_name);
+        }
+
+        None
+    }
+
+    pub fn remove_entity(&mut self, name: &str) -> Option<Task<Vec<CommandEvent>>> {
         let entitis = self.query_world::<&NameComponent>();
 
         let mut events = Vec::new();
@@ -122,11 +160,7 @@ impl Scene {
             }
         }
 
-        let task = move || {
-            debug!("Add entity event!");
-
-            events.clone()
-        };
+        let task = move || events.clone();
 
         Some(Box::new(task))
     }
@@ -152,11 +186,19 @@ impl App for Scene {
         let load_test_tex = Command::new(
             "asset_server",
             CommandType::Get,
-            Some("get textures/happy-tree.png texture".into()),
+            Some("get textures/missing.jpg texture".into()),
             None,
         );
 
-        self.commands.append(&mut vec![load_test_tex]);
+        let load_basic_pentagon = Command::new(
+            "default_scene",
+            CommandType::Get,
+            Some("add --name Penta --primitive pentagon".into()),
+            None,
+        );
+
+        self.commands
+            .append(&mut vec![load_test_tex, load_basic_pentagon]);
     }
 
     async fn process_command(&mut self, cmd: Command) {
@@ -165,19 +207,6 @@ impl App for Scene {
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         if initialized() {
-            if !self.temp {
-                self.temp = true;
-
-                let load_basic_pentagon = Command::new(
-                    "default_scene",
-                    CommandType::Get,
-                    Some("add --name Penta --primitive pentagon".into()),
-                    None,
-                );
-
-                self.commands.push(load_basic_pentagon);
-            }
-
             self.commands.drain(..).collect()
         } else {
             vec![]
