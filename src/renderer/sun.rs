@@ -12,11 +12,7 @@ use winit::{
 };
 
 use crate::{
-    core::{
-        app::App,
-        command_queue::Command,
-        events::{CommandEvent, PipelineDesc},
-    },
+    core::{app::App, command_queue::Command, events::CommandEvent},
     prelude::{command_queue::CommandType, state, Asset, AssetType},
 };
 
@@ -29,6 +25,17 @@ pub struct RenderDesc {
 #[derive(Debug, Clone)]
 pub struct BufferDesc {
     pub data: Vec<Primitive>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineDesc {
+    pub name: String,
+    pub win_id: winit::window::WindowId,
+    pub shader_src: String,
+    pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
+    pub bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
+    pub bind_group_layout_name: Option<String>,
+    pub topology: wgpu::PrimitiveTopology,
 }
 
 use super::{buffer::SunBuffer, primitive::Primitive, texture::GPUTexture};
@@ -46,8 +53,12 @@ pub struct Sun {
     pub index_buffers: HashMap<uuid::Uuid, SunBuffer>,
 
     pub test_texture: Option<GPUTexture>,
-    pub test_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    pub test_texture_bind_group: Option<wgpu::BindGroup>,
+
+    pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
+    pub bind_groups: HashMap<uuid::Uuid, wgpu::BindGroup>,
+
+    // This needs to go in model
+    pub texture_ids: Vec<uuid::Uuid>,
 
     pub lined: bool,
 
@@ -82,7 +93,7 @@ impl Sun {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    required_limits: self.adapter.as_ref().unwrap().limits(),
                 },
                 None,
             )
@@ -127,35 +138,22 @@ impl Sun {
         name: String,
         shader_src: impl AsRef<str>,
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
+        bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
+        bind_group_layout_name: Option<String>,
         topology: wgpu::PrimitiveTopology,
     ) {
-        let texture_bind_group_layout = self.device.as_ref().unwrap().create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                label: Some("BindG Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            },
-        );
-
-        self.test_bind_group_layout = Some(texture_bind_group_layout);
+        if let Some(bgld) = bind_group_layout_desc.clone() {
+            let texture_bind_group_layout = Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_bind_group_layout(&bgld),
+            );
+            self.bind_group_layouts.insert(
+                bind_group_layout_name.unwrap(),
+                texture_bind_group_layout.unwrap(),
+            );
+        }
 
         let vp = self.viewports.get(&win_id).unwrap();
 
@@ -174,7 +172,11 @@ impl Sun {
                 .unwrap()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some(&name),
-                    bind_group_layouts: &[self.test_bind_group_layout.as_ref().unwrap()],
+                    bind_group_layouts: self
+                        .bind_group_layouts
+                        .values()
+                        .collect::<Vec<&_>>()
+                        .as_slice(),
                     push_constant_ranges: &[],
                 });
 
@@ -310,8 +312,14 @@ impl Sun {
                     if let Some(pp) = test_pp {
                         rpass.set_pipeline(pp);
 
-                        if let Some(bind_group) = self.test_texture_bind_group.as_ref() {
-                            rpass.set_bind_group(0, bind_group, &[]);
+                        for i in 0..self.texture_ids.len() {
+                            rpass.set_bind_group(
+                                i as u32,
+                                self.bind_groups
+                                    .get(self.texture_ids.get(i).unwrap())
+                                    .unwrap(),
+                                &[],
+                            );
                         }
 
                         if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
@@ -359,8 +367,10 @@ impl Default for Sun {
             index_buffers: HashMap::new(),
 
             test_texture: None,
-            test_texture_bind_group: None,
-            test_bind_group_layout: None,
+            bind_groups: HashMap::new(),
+            bind_group_layouts: HashMap::new(),
+
+            texture_ids: Vec::new(),
 
             lined: false,
 
@@ -421,6 +431,8 @@ impl App for Sun {
                         pipe_desc.name,
                         pipe_desc.shader_src,
                         &pipe_desc.vertex_buffer_layouts,
+                        pipe_desc.bind_group_layout_desc,
+                        pipe_desc.bind_group_layout_name,
                         pipe_desc.topology,
                     )
                     .await;
@@ -440,29 +452,36 @@ impl App for Sun {
                             .unwrap(),
                         );
 
-                        let test_diffuse_bind_group =
-                            self.device.as_ref().unwrap().create_bind_group(
-                                &wgpu::BindGroupDescriptor {
-                                    label: Some(&asset.name),
-                                    layout: &self.test_bind_group_layout.as_ref().unwrap(),
-                                    entries: &[
-                                        wgpu::BindGroupEntry {
-                                            binding: 0,
-                                            resource: wgpu::BindingResource::TextureView(
-                                                &self.test_texture.as_ref().unwrap().view,
-                                            ),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 1,
-                                            resource: wgpu::BindingResource::Sampler(
-                                                &self.test_texture.as_ref().unwrap().sampler,
-                                            ),
-                                        },
-                                    ],
-                                },
-                            );
+                        self.texture_ids
+                            .push(self.test_texture.as_ref().unwrap().uuid);
 
-                        self.test_texture_bind_group = Some(test_diffuse_bind_group);
+                        let test_diffuse_bind_group = self
+                            .device
+                            .as_ref()
+                            .unwrap()
+                            .create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some(&asset.name),
+                                layout: self.bind_group_layouts.get("basic_shader.wgsl").unwrap(),
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(
+                                            &self.test_texture.as_ref().unwrap().view,
+                                        ),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(
+                                            &self.test_texture.as_ref().unwrap().sampler,
+                                        ),
+                                    },
+                                ],
+                            });
+
+                        self.bind_groups.insert(
+                            self.test_texture.as_ref().unwrap().uuid,
+                            test_diffuse_bind_group,
+                        );
                     }
                 }
 
@@ -492,6 +511,33 @@ impl App for Sun {
                 }
 
                 WindowEvent::RedrawRequested => {
+                    let line_bg_layout_desc = None;
+                    let basic_tex_bg_layout_desc = Some(wgpu::BindGroupLayoutDescriptor {
+                        label: Some("Diffuse Tex Bind Group Description"),
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                    multisampled: false,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                // This should match the filterable field of the
+                                // corresponding Texture entry above.
+                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                                count: None,
+                            },
+                        ],
+                    });
+
                     for (name, shader) in &self.shaders {
                         if !self.pipelines.contains_key(name) {
                             let pipe_desc = PipelineDesc {
@@ -505,6 +551,16 @@ impl App for Sun {
                                     wgpu::PrimitiveTopology::LineList
                                 } else {
                                     wgpu::PrimitiveTopology::TriangleList
+                                },
+                                bind_group_layout_desc: if name.contains("line") {
+                                    line_bg_layout_desc.clone()
+                                } else {
+                                    basic_tex_bg_layout_desc.clone()
+                                },
+                                bind_group_layout_name: if name.contains("line") {
+                                    None
+                                } else {
+                                    Some(name.clone())
                                 },
                             };
 

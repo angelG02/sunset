@@ -3,7 +3,7 @@ use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 
 use crate::prelude::{
-    sun::{BufferDesc, RenderDesc},
+    sun::{BufferDesc, PipelineDesc, RenderDesc},
     Asset,
 };
 
@@ -12,15 +12,6 @@ pub struct NewWindowProps {
     pub size: PhysicalSize<u32>,
     pub name: String,
     // Option<Decorations...icon...etc, etc>
-}
-
-#[derive(Debug, Clone)]
-pub struct PipelineDesc {
-    pub name: String,
-    pub win_id: winit::window::WindowId,
-    pub shader_src: String,
-    pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
-    pub topology: wgpu::PrimitiveTopology,
 }
 
 #[derive(Debug, Clone)]
