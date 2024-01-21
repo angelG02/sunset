@@ -4,7 +4,7 @@ pub mod asset_server;
 #[derive(Debug, Clone)]
 pub struct Asset {
     pub asset_type: AssetType,
-    pub data: String,
+    pub data: Vec<u8>,
     pub name: String,
     pub path: String,
 }
@@ -13,6 +13,7 @@ pub struct Asset {
 pub enum AssetType {
     String,
     Shader,
+    Texture,
     Unknown,
     //...model, texture, audio...
 }

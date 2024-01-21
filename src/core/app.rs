@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use tracing::{error, info};
 use winit::event_loop::EventLoopProxy;
 
 use super::events::CommandEvent;
@@ -16,7 +17,7 @@ pub trait App {
     ///
     /// * `init_commands` - A vector of `Command` objects representing the initial commands.
     ///
-    fn init(&mut self, init_commands: Vec<Command>);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>);
 
     /// Queues commands to be processed by the application duricng the current frame.
     ///
@@ -32,7 +33,7 @@ pub trait App {
     ///
     /// * `cmd` - The `Command` object to be processed (comes from the CLI App with only the argumets provided).
     ///
-    fn process_command(&mut self, cmd: Command);
+    async fn process_command(&mut self, cmd: Command);
 
     /// Processes an event asynchronously.
     ///
@@ -41,11 +42,16 @@ pub trait App {
     /// * `event` - an event dispatched from the event loop.
     /// * `elp` - The event loop proxy (can be used to send other events when the current one has been handled).
     ///
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
-    );
+    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>);
+
+    fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>>
+    where
+        Self: Sized,
+    {
+        error!("Unsupported arguments: {args}");
+        info!("type help for supported commands");
+        None
+    }
 
     /// Strips the App object from all of its implementaions and returns it as an Any object.
     /// This object can be used to downcast the app to a concrete type (Ex: App -> Any -> Windower)

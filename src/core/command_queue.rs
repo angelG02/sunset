@@ -37,6 +37,7 @@ pub enum CommandType {
 pub struct Command {
     pub app: String,
     pub command_type: CommandType,
+    pub processed: bool,
 
     pub args: Option<String>,
     pub task: Option<Task<Vec<CommandEvent>>>,
@@ -47,13 +48,14 @@ impl Command {
         app: &str,
         command_type: CommandType,
         args: Option<String>,
-        task: Task<Vec<CommandEvent>>,
+        task: Option<Task<Vec<CommandEvent>>>,
     ) -> Command {
         Command {
+            processed: task.is_some(),
             app: app.to_owned(),
             command_type,
             args,
-            task: Some(task),
+            task,
         }
     }
 
@@ -64,7 +66,8 @@ impl Command {
         match args[0] {
             "close" | "exit" => Command::exit(elp),
             _ => Command {
-                app: "Main".to_owned(),
+                processed: false,
+                app: args[0].to_owned(),
                 command_type: CommandType::Other,
                 args: Some(args[1..].join(" ")),
                 task: None,
@@ -75,6 +78,7 @@ impl Command {
     pub fn exit(elp: winit::event_loop::EventLoopProxy<CommandEvent>) -> Command {
         elp.send_event(CommandEvent::Exit).unwrap();
         Command {
+            processed: true,
             app: "Main".to_owned(),
             command_type: CommandType::Close,
             args: None,
@@ -140,9 +144,12 @@ impl CommandQueue {
         self.commands.push_back(command.into_command());
     }
 
-    pub fn add_commands(&mut self, commands: Vec<Command>) {
+    pub fn add_commands(&mut self, commands: Vec<Option<Command>>) {
+        #[allow(clippy::manual_flatten)]
         for command in commands {
-            self.commands.push_back(command.into_command());
+            if let Some(cmd) = command {
+                self.commands.push_back(cmd.into_command());
+            }
         }
     }
 }

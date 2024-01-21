@@ -9,11 +9,9 @@ use crate::core::{
     state::{is_running, State},
 };
 
-pub struct CLIContext;
-
 pub struct CLI {
     pub commands: Vec<Command>,
-    pub context: CLIContext,
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl CLI {
@@ -27,6 +25,7 @@ impl CLI {
             _ => CLI::unsupported(args.as_str()),
         };
 
+        cmd.processed = true;
         cmd.task = task;
         cmd.args = Some(args);
 
@@ -47,33 +46,23 @@ impl CLI {
 
         Some(Box::new(cmd))
     }
-
-    fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>> {
-        error!("Unsupported arguments {args}");
-        None
-    }
 }
 
 #[async_trait(?Send)]
 impl App for CLI {
-    fn init(&mut self, mut init_commands: Vec<Command>) {
-        self.commands.append(&mut init_commands);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp);
     }
 
     fn update(&mut self) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
     }
 
-    fn process_command(&mut self, cmd: Command) {
+    async fn process_command(&mut self, cmd: Command) {
         self.process_cli_command(cmd);
     }
 
-    async fn process_event(
-        &mut self,
-        _event: &winit::event::Event<CommandEvent>,
-        _elp: EventLoopProxy<CommandEvent>,
-    ) {
-    }
+    async fn process_event(&mut self, _event: &winit::event::Event<CommandEvent>) {}
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -100,6 +89,7 @@ pub fn get_cli_command() -> Command {
     let args: Vec<&str> = command.split(' ').collect();
 
     Command {
+        processed: false,
         app: args[0].to_owned(),
         command_type: CommandType::TBD,
         args: Some(args[1..].join(" ")),
@@ -115,7 +105,9 @@ pub async fn run_cli() {
         let mut state_lock = State::write().await;
 
         if let Some(app) = state_lock.apps.get_mut(&next_command.app) {
-            app.process_command(next_command);
+            app.process_command(next_command).await;
+        } else {
+            error!("No app found with name: {}", next_command.app);
         }
     }
 }

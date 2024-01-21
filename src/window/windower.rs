@@ -1,13 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy};
 
-use crate::core::{
-    app::App,
-    command_queue::{Command, Task},
-    events::{CommandEvent, NewWindowProps},
+use crate::{
+    core::{
+        app::App,
+        command_queue::{Command, Task},
+        events::{CommandEvent, NewWindowProps},
+    },
+    prelude::command_queue::CommandType,
 };
 
 pub struct WinID {
@@ -20,6 +23,8 @@ pub struct Windower {
     pub windows: HashMap<winit::window::WindowId, Arc<winit::window::Window>>,
     pub window_names: HashMap<winit::window::WindowId, String>,
     pub commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl Windower {
@@ -31,11 +36,12 @@ impl Windower {
             "open" => self.open(vec_args[1..].join(" ")),
             "close" => self.close(vec_args[1..].join(" ")),
             "help" => self.help(),
-            _ => self.unsupported(args.as_str()),
+            _ => Windower::unsupported(args.as_str()),
         };
 
         cmd.task = task;
         cmd.args = Some(args);
+        cmd.processed = true;
 
         self.commands.push(cmd);
     }
@@ -57,8 +63,6 @@ impl Windower {
                     height: args_vec[2].parse::<u32>().unwrap_or(1024),
                 },
             });
-
-            info!("{event:?}");
 
             vec![event]
         };
@@ -108,27 +112,19 @@ impl Windower {
         None
     }
 
-    pub fn unsupported(&self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
-        error!("Unsupported arguments {args}");
-        info!("type help for supported commands");
-        None
-    }
-
-    pub fn create_window(
-        &mut self,
-        props: NewWindowProps,
-        window: winit::window::Window,
-        elp: EventLoopProxy<CommandEvent>,
-    ) {
+    pub fn create_window(&mut self, props: NewWindowProps, window: winit::window::Window) {
         let win_id = window.id();
 
         self.windows.insert(window.id(), Arc::new(window));
         self.window_names.insert(win_id, props.name.clone());
 
-        info!("Created window {}: {:?}", props.name.clone(), win_id);
+        debug!("Created window {}: {:?}", props.name.clone(), win_id);
         let window = self.windows.get(&win_id).unwrap();
 
-        elp.send_event(CommandEvent::RequestSurface(Arc::clone(window)))
+        self.proxy
+            .as_ref()
+            .unwrap()
+            .send_event(CommandEvent::RequestSurface(Arc::clone(window)))
             .expect("Failed to send event!");
 
         #[cfg(target_arch = "wasm32")]
@@ -140,23 +136,36 @@ impl Windower {
 
 #[async_trait(?Send)]
 impl App for Windower {
-    fn init(&mut self, mut init_commands: Vec<Command>) {
-        self.commands.append(&mut init_commands);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone());
+
+        let task = self.open("Sandbox 1920 1080".into());
+
+        let cmd = Command {
+            processed: true,
+            app: "Windower".into(),
+            args: None,
+            command_type: CommandType::Open,
+            task,
+        };
+
+        self.commands.push(cmd);
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+        for window in self.windows.values() {
+            if window.has_focus() {
+                window.request_redraw();
+            }
+        }
         self.commands.drain(..).collect()
     }
 
-    fn process_command(&mut self, cmd: Command) {
+    async fn process_command(&mut self, cmd: Command) {
         self.process_window_command(cmd);
     }
 
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<CommandEvent>,
-        _elp: EventLoopProxy<CommandEvent>,
-    ) {
+    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>) {
         if let winit::event::Event::WindowEvent {
             window_id,
             event: winit::event::WindowEvent::CloseRequested,
@@ -203,7 +212,7 @@ fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
 
     web_sys::window()
         .and_then(|win| win.document())
-        .and_then(|doc| {
+        .and_then(|_doc| {
             let canvas = window.canvas().unwrap();
             canvas.style().set_css_text(canvas_css.as_str());
             body.append_child(&canvas).ok()?;

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use async_std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use once_cell::sync::Lazy;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use winit::event_loop::EventLoopProxy;
 
 #[allow(unused_imports)]
@@ -21,6 +21,17 @@ use crate::{
 
 static mut GLOBAL_STATE: Lazy<RwLock<State>> = Lazy::new(Default::default);
 static mut RUNNING: AtomicBool = AtomicBool::new(true);
+pub static mut ENGINE_INIT: AtomicBool = AtomicBool::new(false);
+
+pub fn initialized() -> bool {
+    unsafe { ENGINE_INIT.load(std::sync::atomic::Ordering::SeqCst) }
+}
+
+pub fn finish_init() {
+    unsafe {
+        ENGINE_INIT.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 
 pub fn is_running() -> bool {
     unsafe { RUNNING.load(std::sync::atomic::Ordering::SeqCst) }
@@ -49,26 +60,10 @@ impl State {
 
         let event_loop_proxy = event_loop.create_proxy();
 
-        // NOTE (@A40): Local only for now
-        let mut asset_server = AssetServer::new("127.0.0.1:7878".into());
-
-        let load_basic_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            None,
-            AssetCommand::get_from_server(
-                "127.0.0.1:7878 shaders/basic_shader.wgsl shader".into(),
-                event_loop_proxy.clone(),
-            )
-            .unwrap(),
-        );
-
-        asset_server.init(vec![load_basic_shader]);
-
         // Scoped to make sure the lock is dropped
         {
             let mut state_lock = State::write().await;
-            state_lock.event_loop_proxy = Some(event_loop_proxy);
+            state_lock.event_loop_proxy = Some(event_loop_proxy.clone());
         }
 
         let default_apps = default_apps();
@@ -78,18 +73,49 @@ impl State {
         }
 
         {
-            State::insert_app("asset_server", Box::new(asset_server)).await;
+            let mut state_lock = State::write().await;
+            let apps = &mut state_lock.apps;
+
+            for app in apps.values_mut() {
+                app.init(event_loop_proxy.clone())
+            }
         }
+
+        State::update().await;
+
         event_loop
     }
 
     async fn update() {
-        let mut frame_commands: Vec<Command> = vec![];
+        let mut frame_commands: Vec<Option<Command>> = vec![];
         {
             let apps = &mut State::write().await.apps;
 
             for app in apps.values_mut() {
-                frame_commands.append(&mut app.update());
+                let cmds = app.update();
+
+                for cmd in cmds {
+                    frame_commands.push(Some(cmd));
+                }
+            }
+        }
+
+        {
+            let mut state_lock = State::write().await;
+
+            for command in &mut frame_commands {
+                if !command.as_ref().unwrap().processed {
+                    let cmd = command.take();
+                    if let Some(app) = state_lock.apps.get_mut(&cmd.as_ref().unwrap().app) {
+                        app.process_command(cmd.unwrap()).await;
+                    } else {
+                        error!(
+                            "No app found with name: {} to process: \"{}\"",
+                            &cmd.as_ref().unwrap().app,
+                            &cmd.as_ref().unwrap().args.as_ref().unwrap()
+                        );
+                    }
+                }
             }
         }
 
@@ -111,22 +137,15 @@ impl State {
     }
 
     pub async fn process_events(event: winit::event::Event<CommandEvent>) {
-        let elp: EventLoopProxy<CommandEvent>;
-        {
-            elp = State::get_proxy().await;
-        }
-
         let apps = &mut State::write().await.apps;
 
         for app in apps.values_mut() {
-            app.process_event(&event, elp.clone()).await;
+            app.process_event(&event).await;
         }
     }
 
     pub async fn on_new_window_requested(props: NewWindowProps, window: winit::window::Window) {
         let mut state_lock = State::write().await;
-
-        let elp = state_lock.event_loop_proxy.clone().unwrap();
 
         let windower = state_lock
             .apps
@@ -136,7 +155,7 @@ impl State {
             .downcast_mut::<Windower>()
             .unwrap();
 
-        windower.create_window(props, window, elp);
+        windower.create_window(props, window);
     }
 
     pub async fn get_proxy() -> winit::event_loop::EventLoopProxy<CommandEvent> {
@@ -203,22 +222,11 @@ pub async fn run() {
             let _delta_time = frame_time as f32 * 0.000000001;
             current_time = new_time;
 
-            info!("{_delta_time}s");
+            //info!("{_delta_time}s");
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-            cfg_if::cfg_if! {
-                if #[cfg(not(target_arch = "wasm32"))] {
-                    runtime.block_on(State::update());
-                    runtime.block_on(State::process_events(event.clone()));
-                }
-                else {
-                    wasm_bindgen_futures::spawn_local(State::update());
-                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
-                }
-            }
-
-            if let winit::event::Event::UserEvent(event) = event {
+            if let winit::event::Event::UserEvent(event) = event.clone() {
                 match event {
                     CommandEvent::OpenWindow(props) => {
                         let window = winit::window::WindowBuilder::new()
@@ -240,6 +248,16 @@ pub async fn run() {
                         terminate();
                     }
                     _ => {}
+                }
+            }
+            cfg_if::cfg_if! {
+                if #[cfg(not(target_arch = "wasm32"))] {
+                    runtime.block_on(State::process_events(event.clone()));
+                    runtime.block_on(State::update());
+                }
+                else {
+                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
+                    wasm_bindgen_futures::spawn_local(State::update());
                 }
             }
         })
@@ -264,10 +282,11 @@ fn init_trace() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
         .without_time()
-        .with_file(false)
         .with_target(false)
         .with_thread_ids(true)
         .with_thread_names(true)
+        .with_file(false)
+        .with_line_number(false)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

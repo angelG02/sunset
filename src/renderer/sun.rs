@@ -3,36 +3,75 @@ use std::{collections::HashMap, sync::Arc};
 use async_std::sync::RwLock;
 use async_trait::async_trait;
 use tracing::info;
+use wgpu::BufferUsages;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
+    keyboard::PhysicalKey,
     window::Window,
 };
 
 use crate::{
-    core::{
-        app::App,
-        command_queue::Command,
-        events::{CommandEvent, PipelineDesc},
-    },
-    prelude::{events::RenderDesc, Asset, AssetType},
+    core::{app::App, command_queue::Command, events::CommandEvent},
+    prelude::{command_queue::CommandType, state, Asset, AssetType},
 };
+
+pub type TextureID = uuid::Uuid;
+pub type PrimitiveID = uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct RenderDesc {
+    pub primitives: Vec<Primitive>,
+    pub window_id: winit::window::WindowId,
+}
+
+#[derive(Debug, Clone)]
+pub struct BufferDesc {
+    pub data: Vec<Primitive>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineDesc {
+    pub name: String,
+    pub win_id: winit::window::WindowId,
+    pub shader_src: String,
+    pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
+    pub bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
+    pub bind_group_layout_name: Option<String>,
+    pub topology: wgpu::PrimitiveTopology,
+}
+
+use super::{buffer::SunBuffer, primitive::Primitive, texture::GPUTexture};
 
 pub struct Sun {
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
-    device: Option<Arc<wgpu::Device>>,
+    device: Option<wgpu::Device>,
     queue: Option<wgpu::Queue>,
 
     pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
     pub pipelines: HashMap<String, wgpu::RenderPipeline>,
     pub shaders: HashMap<String, Asset>,
+    pub vertex_buffers: HashMap<PrimitiveID, SunBuffer>,
+    pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
+
+    pub test_texture: Option<GPUTexture>,
+
+    pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
+    pub bind_groups: HashMap<TextureID, wgpu::BindGroup>,
+
+    // This needs to go in model
+    pub texture_ids: HashMap<String, TextureID>,
+
+    pub lined: bool,
 
     commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl Sun {
-    pub async fn create_adapter(&mut self, surface: &wgpu::Surface) {
+    pub async fn create_adapter(&mut self, surface: &wgpu::Surface<'static>) {
         let adapter = self
             .instance
             .as_ref()
@@ -56,15 +95,15 @@ impl Sun {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::downlevel_defaults(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: self.adapter.as_ref().unwrap().limits(),
                 },
                 None,
             )
             .await
             .expect("Failed to create device");
 
-        self.device = Some(Arc::new(device));
+        self.device = Some(device);
         self.queue = Some(queue);
     }
 
@@ -101,7 +140,24 @@ impl Sun {
         win_id: winit::window::WindowId,
         name: String,
         shader_src: impl AsRef<str>,
+        vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
+        bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
+        bind_group_layout_name: Option<String>,
+        topology: wgpu::PrimitiveTopology,
     ) {
+        if let Some(bgld) = bind_group_layout_desc.clone() {
+            let texture_bind_group_layout = Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_bind_group_layout(&bgld),
+            );
+            self.bind_group_layouts.insert(
+                bind_group_layout_name.unwrap(),
+                texture_bind_group_layout.unwrap(),
+            );
+        }
+
         let vp = self.viewports.get(&win_id).unwrap();
 
         let shader =
@@ -119,7 +175,11 @@ impl Sun {
                 .unwrap()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some(&name),
-                    bind_group_layouts: &[],
+                    bind_group_layouts: self
+                        .bind_group_layouts
+                        .values()
+                        .collect::<Vec<&_>>()
+                        .as_slice(),
                     push_constant_ranges: &[],
                 });
 
@@ -133,7 +193,7 @@ impl Sun {
                     vertex: wgpu::VertexState {
                         module: &shader,
                         entry_point: "vs_main",
-                        buffers: &[],
+                        buffers: vertex_buffer_layouts,
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
@@ -145,7 +205,7 @@ impl Sun {
                         })],
                     }),
                     primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        topology,
                         strip_index_format: None,
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode: Some(wgpu::Face::Back),
@@ -166,6 +226,53 @@ impl Sun {
                 });
 
         self.pipelines.insert(name, pipeline);
+
+        if !state::initialized() {
+            state::finish_init();
+            info!("Initialized Render Engine!")
+        }
+    }
+
+    pub async fn generate_buffers(&mut self, buf_desc: &BufferDesc) {
+        for primitive in &buf_desc.data {
+            if !primitive.initialized {
+                let vb = SunBuffer::new_with_data(
+                    format!("Vertex Buffer: {}", primitive.uuid).as_str(),
+                    BufferUsages::VERTEX,
+                    bytemuck::cast_slice(primitive.vertices.as_slice()),
+                    self.device.as_ref().unwrap(),
+                );
+
+                if !primitive.indices.is_empty() {
+                    let ib = SunBuffer::new_with_data(
+                        format!("Index Buffer: {}", primitive.uuid).as_str(),
+                        BufferUsages::INDEX,
+                        bytemuck::cast_slice(primitive.indices.as_slice()),
+                        self.device.as_ref().unwrap(),
+                    );
+                    self.index_buffers.insert(primitive.uuid, ib);
+                }
+
+                self.vertex_buffers.insert(primitive.uuid, vb);
+            }
+        }
+    }
+
+    pub fn destroy_buffer(&mut self, id: PrimitiveID) {
+        if self.vertex_buffers.contains_key(&id) {
+            self.vertex_buffers
+                .remove(&id)
+                .unwrap()
+                .get_buffer()
+                .destroy();
+        }
+        if self.index_buffers.contains_key(&id) {
+            self.index_buffers
+                .remove(&id)
+                .unwrap()
+                .get_buffer()
+                .destroy();
+        }
     }
 
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
@@ -182,7 +289,11 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let test_pp = self.pipelines.get("basic_shader.wgsl");
+            let test_pp = if self.lined {
+                self.pipelines.get("line_shader.wgsl")
+            } else {
+                self.pipelines.get("basic_shader.wgsl")
+            };
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -200,9 +311,45 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
-                if let Some(pp) = test_pp {
-                    rpass.set_pipeline(pp);
-                    rpass.draw(0..3, 0..1);
+                for primitive in &render_desc.primitives {
+                    if let Some(pp) = test_pp {
+                        rpass.set_pipeline(pp);
+
+                        // for i in 0..self.texture_ids.len() {
+                        //     rpass.set_bind_group(
+                        //         i as u32,
+                        //         self.bind_groups
+                        //             .get(self.texture_ids.get(i).unwrap())
+                        //             .unwrap(),
+                        //         &[],
+                        //     );
+                        // }
+
+                        if let Some(tex_name) = &primitive.temp_diffuse {
+                            let tex_id = self.texture_ids.get(tex_name).unwrap();
+                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+
+                            rpass.set_bind_group(0, bind_group, &[]);
+                        } else {
+                            let tex_id = self.texture_ids.get("missing.jpg").unwrap();
+                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+
+                            rpass.set_bind_group(0, bind_group, &[]);
+                        }
+
+                        if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
+                            rpass.set_vertex_buffer(0, vb.get_buffer().slice(..));
+                        }
+
+                        if let Some(ib) = self.index_buffers.get(&primitive.uuid) {
+                            rpass.set_index_buffer(
+                                ib.get_buffer().slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            )
+                        }
+
+                        rpass.draw_indexed(0..primitive.indices.len() as u32, 0, 0..1);
+                    }
                 }
             }
 
@@ -231,24 +378,52 @@ impl Default for Sun {
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
             shaders: HashMap::new(),
+            vertex_buffers: HashMap::new(),
+            index_buffers: HashMap::new(),
+
+            test_texture: None,
+            bind_groups: HashMap::new(),
+            bind_group_layouts: HashMap::new(),
+
+            texture_ids: HashMap::new(),
+
+            lined: false,
 
             commands: vec![],
+
+            proxy: None,
         }
     }
 }
 
 #[async_trait(?Send)]
 impl App for Sun {
-    fn init(&mut self, mut init_commands: Vec<crate::core::command_queue::Command>) {
-        self.commands.append(&mut init_commands);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone());
+
+        let load_basic_shader = Command::new(
+            "asset_server",
+            CommandType::Get,
+            Some("get shaders/basic_shader.wgsl shader".into()),
+            None,
+        );
+
+        let load_line_shader = Command::new(
+            "asset_server",
+            CommandType::Get,
+            Some("get shaders/line_shader.wgsl shader".into()),
+            None,
+        );
+
+        self.commands
+            .append(&mut vec![load_basic_shader, load_line_shader]);
     }
 
-    fn process_command(&mut self, _cmd: Command) {}
+    async fn process_command(&mut self, _cmd: Command) {}
 
     async fn process_event(
         &mut self,
         event: &winit::event::Event<crate::core::events::CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
     ) {
         if let Event::UserEvent(event) = event {
             match event {
@@ -266,16 +441,70 @@ impl App for Sun {
                 CommandEvent::RequestPipeline(pipe_desc) => {
                     let pipe_desc = pipe_desc.clone();
 
-                    self.create_pipeline(pipe_desc.win_id, pipe_desc.name, pipe_desc.shader_src)
-                        .await;
+                    self.create_pipeline(
+                        pipe_desc.win_id,
+                        pipe_desc.name,
+                        pipe_desc.shader_src,
+                        &pipe_desc.vertex_buffer_layouts,
+                        pipe_desc.bind_group_layout_desc,
+                        pipe_desc.bind_group_layout_name,
+                        pipe_desc.topology,
+                    )
+                    .await;
                 }
 
                 CommandEvent::Asset(asset) => {
                     if asset.asset_type == AssetType::Shader {
-                        info!("Asset!");
                         self.shaders.insert(asset.name.clone(), asset.clone());
+                    } else if asset.asset_type == AssetType::Texture {
+                        let asset = asset.clone();
+                        self.test_texture = Some(
+                            GPUTexture::from_bytes(
+                                self.device.as_ref().unwrap(),
+                                self.queue.as_ref().unwrap(),
+                                asset.data.as_slice(),
+                                asset.name.as_str(),
+                            )
+                            .unwrap(),
+                        );
+
+                        self.texture_ids.insert(
+                            self.test_texture.as_ref().unwrap().name.clone(),
+                            self.test_texture.as_ref().unwrap().uuid,
+                        );
+
+                        let test_diffuse_bind_group = self
+                            .device
+                            .as_ref()
+                            .unwrap()
+                            .create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some(&asset.name),
+                                layout: self.bind_group_layouts.get("basic_shader.wgsl").unwrap(),
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(
+                                            &self.test_texture.as_ref().unwrap().view,
+                                        ),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(
+                                            &self.test_texture.as_ref().unwrap().sampler,
+                                        ),
+                                    },
+                                ],
+                            });
+
+                        self.bind_groups.insert(
+                            self.test_texture.as_ref().unwrap().uuid,
+                            test_diffuse_bind_group,
+                        );
                     }
                 }
+
+                CommandEvent::RequestCreateBuffer(desc) => self.generate_buffers(desc).await,
+                CommandEvent::RequestDestroyBuffer(id) => self.destroy_buffer(id.clone()),
                 _ => {}
             }
         }
@@ -300,16 +529,78 @@ impl App for Sun {
                 }
 
                 WindowEvent::RedrawRequested => {
+                    let line_bg_layout_desc = None;
+                    let basic_tex_bg_layout_desc = Some(wgpu::BindGroupLayoutDescriptor {
+                        label: Some("Diffuse Tex Bind Group Description"),
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                    multisampled: false,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                // This should match the filterable field of the
+                                // corresponding Texture entry above.
+                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                                count: None,
+                            },
+                        ],
+                    });
+
                     for (name, shader) in &self.shaders {
                         if !self.pipelines.contains_key(name) {
                             let pipe_desc = PipelineDesc {
                                 name: name.clone(),
                                 win_id: *window_id,
-                                shader_src: shader.data.clone(),
+                                shader_src: std::str::from_utf8(shader.data.clone().as_slice())
+                                    .unwrap()
+                                    .to_owned(),
+                                vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                                topology: if name.contains("line") {
+                                    wgpu::PrimitiveTopology::LineList
+                                } else {
+                                    wgpu::PrimitiveTopology::TriangleList
+                                },
+                                bind_group_layout_desc: if name.contains("line") {
+                                    line_bg_layout_desc.clone()
+                                } else {
+                                    basic_tex_bg_layout_desc.clone()
+                                },
+                                bind_group_layout_name: if name.contains("line") {
+                                    None
+                                } else {
+                                    Some(name.clone())
+                                },
                             };
 
-                            elp.send_event(CommandEvent::RequestPipeline(pipe_desc))
+                            self.proxy
+                                .as_ref()
+                                .unwrap()
+                                .send_event(CommandEvent::RequestPipeline(pipe_desc))
                                 .unwrap();
+                        }
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    device_id: _,
+                    event,
+                    is_synthetic: _,
+                } => {
+                    if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+                        && event.state == winit::event::ElementState::Released
+                    {
+                        self.lined = !self.lined;
+                        for vp in self.viewports.values() {
+                            vp.read().await.desc.window.request_redraw();
                         }
                     }
                 }
@@ -335,7 +626,7 @@ impl App for Sun {
 struct ViewportDesc {
     window: Arc<Window>,
     background: wgpu::Color,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
 }
 
 #[derive(Debug)]
@@ -346,7 +637,13 @@ pub struct Viewport {
 
 impl ViewportDesc {
     fn new(window: Arc<Window>, background: wgpu::Color, instance: &wgpu::Instance) -> Self {
-        let surface = unsafe { instance.create_surface(window.clone().as_ref()).unwrap() };
+        let surface = unsafe {
+            instance
+                .create_surface_unsafe(
+                    wgpu::SurfaceTargetUnsafe::from_window(window.clone().as_ref()).unwrap(),
+                )
+                .unwrap()
+        };
         Self {
             window,
             background,
@@ -366,6 +663,7 @@ impl ViewportDesc {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 3,
         };
 
         self.surface.configure(device, &config);

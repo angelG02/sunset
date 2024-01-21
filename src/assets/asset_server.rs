@@ -1,11 +1,20 @@
 use async_trait::async_trait;
+use tracing::error;
 use winit::event_loop::EventLoopProxy;
 
-use crate::core::{app::App, command_queue::Command, events::CommandEvent};
+use crate::core::{
+    app::App,
+    command_queue::{Command, Task},
+    events::CommandEvent,
+};
+
+use super::asset_cmd::AssetCommand;
 
 pub struct AssetServer {
     pub server_addr: String,
     pub commands: Vec<Command>,
+
+    pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
 
 impl AssetServer {
@@ -13,22 +22,62 @@ impl AssetServer {
         AssetServer {
             server_addr: addr,
             commands: vec![],
+
+            proxy: None,
         }
+    }
+
+    pub fn process_asset_command(&mut self, mut cmd: Command) {
+        let args = cmd.args.clone().unwrap();
+        let vec_args: Vec<&str> = args.split(' ').collect();
+
+        let task = match vec_args[0].to_ascii_lowercase().as_str() {
+            "get" => self.get(
+                &vec_args[1..].join(" "),
+                self.proxy.as_ref().unwrap().clone(),
+            ),
+            //"put" => self.put(args),
+            _ => AssetServer::unsupported(args.as_str()),
+        };
+
+        cmd.processed = true;
+        cmd.task = task;
+        cmd.args = Some(args);
+
+        self.commands.push(cmd);
+    }
+
+    pub fn get(
+        &self,
+        args: &str,
+        elp: EventLoopProxy<CommandEvent>,
+    ) -> Option<Task<Vec<CommandEvent>>> {
+        let vec_args: Vec<&str> = args.split(' ').collect();
+
+        if vec_args.len() < 2 {
+            error!("Expected 2 arguments to command <get>!");
+            return None;
+        }
+
+        let args = format!("{} {} {}", self.server_addr, vec_args[0], vec_args[1]);
+
+        AssetCommand::get_from_server(args, elp)
     }
 }
 
 #[async_trait(?Send)]
 impl App for AssetServer {
-    fn init(&mut self, mut init_commands: Vec<crate::core::command_queue::Command>) {
-        self.commands.append(&mut init_commands);
+    fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
+        self.proxy = Some(elp.clone())
     }
 
-    fn process_command(&mut self, _cmd: Command) {}
+    async fn process_command(&mut self, cmd: Command) {
+        self.process_asset_command(cmd)
+    }
 
     async fn process_event(
         &mut self,
-        event: &winit::event::Event<crate::core::events::CommandEvent>,
-        elp: EventLoopProxy<CommandEvent>,
+        _event: &winit::event::Event<crate::core::events::CommandEvent>,
     ) {
     }
 
