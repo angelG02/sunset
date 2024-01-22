@@ -13,7 +13,7 @@ use winit::{
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
     prelude::{
-        camera_component::{CamType, CameraComponent, PerspectiveProps},
+        camera_component::{CamType, CameraComponent, CameraController, PerspectiveProps},
         command_queue::CommandType,
         state, Asset, AssetType,
     },
@@ -69,8 +69,10 @@ pub struct Sun {
     pub texture_ids: HashMap<String, ResourceID>,
 
     // This needs to be querried from the scene
+    pub camera_controller: CameraController,
     pub current_camera: Option<CameraComponent>,
     pub current_camera_buffer: Option<SunBuffer>,
+    pub current_camera_uniform: Option<CameraUniform>,
 
     pub lined: bool,
 
@@ -204,6 +206,7 @@ impl Sun {
             );
             self.current_camera = Some(camera);
             self.current_camera_buffer = Some(camera_buffer);
+            self.current_camera_uniform = Some(camera_uniform);
         }
         self.pipelines.insert(name, pipeline);
 
@@ -292,7 +295,6 @@ impl Sun {
                 for primitive in &render_desc.primitives {
                     if let Some((name, pipeline)) = pipeline_entry {
                         rpass.set_pipeline(&pipeline.pipeline);
-
                         if let Some(cam) = &self.current_camera {
                             if name != "line_shader.wgsl" {
                                 // Diffuse texture bind group (set to default missing texture if not present on the primitive)
@@ -360,8 +362,11 @@ impl Default for Sun {
             test_texture: None,
 
             texture_ids: HashMap::new(),
+
+            camera_controller: CameraController::new(0.2),
             current_camera: None,
             current_camera_buffer: None,
+            current_camera_uniform: None,
 
             lined: false,
 
@@ -482,6 +487,8 @@ impl App for Sun {
         }
 
         if let Event::WindowEvent { window_id, event } = event {
+            self.camera_controller.process_events(event);
+
             match event {
                 WindowEvent::Resized(new_size) => {
                     // Recreate the swap chain with the new size
@@ -555,6 +562,16 @@ impl App for Sun {
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+        if let Some(cam) = self.current_camera.as_mut() {
+            self.camera_controller.update_camera(cam);
+            self.current_camera_uniform.unwrap().update_view_proj(&cam);
+            self.queue.as_ref().unwrap().write_buffer(
+                self.current_camera_buffer.as_ref().unwrap().get_buffer(),
+                0,
+                bytemuck::cast_slice(&[self.current_camera_uniform.unwrap()]),
+            );
+        }
+
         self.commands.drain(..).collect()
     }
 
