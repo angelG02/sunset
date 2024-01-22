@@ -47,7 +47,7 @@ pub struct PipelineDesc {
 
 use super::{
     buffer::{CameraUniform, SunBuffer},
-    pipeline::{self, SunPipeline},
+    pipeline::SunPipeline,
     primitive::{Primitive, Vertex},
     texture::GPUTexture,
 };
@@ -377,7 +377,14 @@ impl Sun {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
-                    depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &vp.depth_texture.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
@@ -611,9 +618,8 @@ impl App for Sun {
                 WindowEvent::Resized(new_size) => {
                     // Recreate the swap chain with the new size
                     if let Some(viewport) = self.viewports.get_mut(window_id) {
-                        {
-                            viewport.resize(self.device.as_ref().unwrap(), new_size);
-                        }
+                        viewport.resize(self.device.as_ref().unwrap(), new_size);
+
                         // On macos the window needs to be redrawn manually after resizing
                         viewport.desc.window.request_redraw();
                     }
@@ -688,17 +694,16 @@ impl App for Sun {
     }
 }
 
-#[derive(Debug)]
 pub struct ViewportDesc {
     pub window: Arc<Window>,
     pub background: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
 }
 
-#[derive(Debug)]
 pub struct Viewport {
     pub desc: ViewportDesc,
     pub config: wgpu::SurfaceConfiguration,
+    pub depth_texture: GPUTexture,
 }
 
 impl ViewportDesc {
@@ -732,9 +737,15 @@ impl ViewportDesc {
             desired_maximum_frame_latency: 3,
         };
 
+        let depth_texture = GPUTexture::create_depth_texture(device, &config, "depth_texture");
+
         self.surface.configure(device, &config);
 
-        Viewport { desc: self, config }
+        Viewport {
+            desc: self,
+            config,
+            depth_texture,
+        }
     }
 }
 
@@ -745,6 +756,9 @@ impl Viewport {
             self.config.height = size.height;
             self.desc.surface.configure(device, &self.config);
         }
+
+        self.depth_texture =
+            GPUTexture::create_depth_texture(device, &self.config, "depth_texture");
     }
     fn get_current_texture(&mut self) -> wgpu::SurfaceTexture {
         self.desc
