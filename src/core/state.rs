@@ -218,11 +218,12 @@ pub async fn run() {
 
             // Calculate frame time (delta time)
             let new_time = web_time::Instant::now();
-            let frame_time = (new_time - current_time).as_nanos();
-            let _delta_time = frame_time as f32 * 0.000000001;
+            let frame_time_ns = (new_time - current_time).as_nanos();
+            let _frame_time_ms = (new_time - current_time).as_millis();
+            let _delta_time = frame_time_ns as f32 * 0.000000001;
             current_time = new_time;
 
-            //info!("{_delta_time}s");
+            //info!("{_frame_time_ms}ms");
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 

@@ -1,5 +1,7 @@
 use wgpu::{util::DeviceExt, Device};
 
+use crate::prelude::camera_component::CameraComponent;
+
 #[derive(Debug)]
 pub struct SunBuffer {
     pub label: String,
@@ -46,3 +48,25 @@ impl SunBuffer {
         SunBuffer::new_with_data(&self.label, self.usage, new_contents, device)
     }
 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+}
+
+impl CameraUniform {
+    pub fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    pub fn update_view_proj(&mut self, camera: &CameraComponent) {
+        self.view_proj = camera.build_vp_matrix().into();
+    }
+}
+
+unsafe impl bytemuck::Pod for CameraUniform {}
+unsafe impl bytemuck::Zeroable for CameraUniform {}
