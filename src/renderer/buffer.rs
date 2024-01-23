@@ -1,4 +1,3 @@
-use tracing::debug;
 use wgpu::{util::DeviceExt, Device};
 
 use crate::prelude::camera_component::CameraComponent;
@@ -66,8 +65,6 @@ impl CameraUniform {
 
     pub fn update_view_proj(&mut self, camera: &CameraComponent) {
         self.view_proj = camera.build_vp_matrix().into();
-
-        //debug!("{:?}", self.view_proj);
     }
 }
 

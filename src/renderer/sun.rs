@@ -564,11 +564,15 @@ impl App for Sun {
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
         if let Some(cam) = self.current_camera.as_mut() {
             self.camera_controller.update_camera(cam);
+
+            let mut camera_uniform = CameraUniform::new();
+            camera_uniform.update_view_proj(&cam);
+
             self.current_camera_uniform.unwrap().update_view_proj(&cam);
             self.queue.as_ref().unwrap().write_buffer(
                 self.current_camera_buffer.as_ref().unwrap().get_buffer(),
                 0,
-                bytemuck::cast_slice(&[self.current_camera_uniform.unwrap()]),
+                bytemuck::cast_slice(&[camera_uniform]),
             );
         }
 
