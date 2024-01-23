@@ -253,12 +253,12 @@ pub async fn run() {
             }
             cfg_if::cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
-                    runtime.block_on(State::process_events(event.clone()));
                     runtime.block_on(State::update());
+                    runtime.block_on(State::process_events(event.clone()));
                 }
                 else {
-                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
                     wasm_bindgen_futures::spawn_local(State::update());
+                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
                 }
             }
         })
