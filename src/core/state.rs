@@ -180,7 +180,7 @@ impl State {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub async fn run() {
     let event_loop = State::init().await;
 
@@ -191,7 +191,7 @@ pub async fn run() {
         let builder = std::thread::Builder::new().name("CLI".into());
 
         let runtime_cli = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(16)
+            .worker_threads(2)
             .build()
             .unwrap();
 

@@ -62,6 +62,7 @@ impl Windower {
                     width: args_vec[1].parse::<u32>().unwrap_or(1024),
                     height: args_vec[2].parse::<u32>().unwrap_or(1024),
                 },
+                element_id: args_vec[0].to_string(),
             });
 
             vec![event]
@@ -129,7 +130,7 @@ impl Windower {
 
         #[cfg(target_arch = "wasm32")]
         {
-            append_canvas(window, props.size);
+            append_canvas(window, props.size, &props.element_id);
         }
     }
 }
@@ -153,9 +154,54 @@ impl App for Windower {
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
-        for window in self.windows.values() {
+        for (_window_id, window) in &self.windows {
             if window.has_focus() {
                 window.request_redraw();
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                use winit::platform::web::WindowExtWebSys;
+                let web_window = web_sys::window().expect("no global `window` exists");
+                let document = web_window
+                    .document()
+                    .expect("should have a document on window");
+
+                let element_id = self.window_names.get(_window_id).unwrap();
+
+                if let Some(outer_el) = document.get_element_by_id(element_id) {
+                    if let Some(inner_el) =
+                        document.get_element_by_id(format!("{}_canvas", element_id).as_str())
+                    {
+                        let desired_width = outer_el.client_width() as u32;
+                        let desired_height = outer_el.client_height() as u32;
+
+                        if window.inner_size().width != desired_width
+                            || window.inner_size().height != desired_height
+                        {
+                            let canvas_css = format!(
+                                "width: {}px; height: {}px; position: absolute",
+                                desired_width, desired_height
+                            );
+
+                            let js_val = <web_sys::Element as AsRef<wasm_bindgen::JsValue>>::as_ref(
+                                &inner_el,
+                            );
+
+                            <web_sys::HtmlElement as From<wasm_bindgen::JsValue>>::from(
+                                js_val.clone(),
+                            )
+                            .style()
+                            .set_css_text(canvas_css.as_str());
+
+                            window.set_min_inner_size(Some(PhysicalSize {
+                                width: desired_width,
+                                height: desired_height,
+                            }));
+                            window.request_redraw();
+                        }
+                    }
+                }
             }
         }
         self.commands.drain(..).collect()
@@ -191,7 +237,7 @@ impl App for Windower {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
+fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>, element_id: &str) {
     use winit::platform::web::WindowExtWebSys;
 
     window.set_min_inner_size(Some(size));
@@ -202,21 +248,45 @@ fn append_canvas(window: &winit::window::Window, size: PhysicalSize<u32>) {
     let document = web_window
         .document()
         .expect("should have a document on window");
+
     let body = document.body().expect("document should have a body");
 
-    let canvas_header = document.create_element("h2").unwrap();
-    canvas_header.set_text_content(Some(format!("Canvas: {:?}", window.id()).as_str()));
-    body.append_child(&canvas_header).unwrap();
+    if let Some(canvas_el) = document.get_element_by_id(element_id) {
+        let canvas_css = format!(
+            "width: {}px; height: {}px; position: absolute",
+            canvas_el.client_width(),
+            canvas_el.client_height()
+        );
 
-    let canvas_css = format!("width: {}px; height: {}px", size.width, size.height);
+        let canvas = window.canvas().unwrap();
+        canvas.style().set_css_text(canvas_css.as_str());
+        canvas.set_id(format!("{}_canvas", element_id).as_str());
+        canvas_el.append_child(&canvas).unwrap();
+    } else {
+        let canvas_header = document.create_element("h2").unwrap();
+        canvas_header.set_text_content(Some(
+            format!(
+                "Canvas: {:?}! No element with ID: {}",
+                window.id(),
+                element_id
+            )
+            .as_str(),
+        ));
+        body.append_child(&canvas_header).unwrap();
 
-    web_sys::window()
-        .and_then(|win| win.document())
-        .and_then(|_doc| {
-            let canvas = window.canvas().unwrap();
-            canvas.style().set_css_text(canvas_css.as_str());
-            body.append_child(&canvas).ok()?;
-            Some(())
-        })
-        .expect("Couldn't append canvas to document body.");
+        let canvas_css = format!(
+            "width: {}px; height: {}px; position: relative; z-index: 9999",
+            size.width, size.height
+        );
+
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|_doc| {
+                let canvas = window.canvas().unwrap();
+                canvas.style().set_css_text(canvas_css.as_str());
+                body.append_child(&canvas).ok()?;
+                Some(())
+            })
+            .expect("Couldn't append canvas to document body.");
+    }
 }
