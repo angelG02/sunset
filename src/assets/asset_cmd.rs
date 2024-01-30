@@ -142,7 +142,7 @@ impl AssetCommand {
                 _ => AssetType::Unknown,
             };
 
-            let url = format!("{}{}", "ws://", addr);
+            let url = format!("{}{}", "wss://", addr);
 
             let ws = web_sys::WebSocket::new(url.as_str()).unwrap();
             let cloned_ws = ws.clone();
