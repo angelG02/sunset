@@ -7,7 +7,6 @@ use wgpu::BufferUsages;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
-    keyboard::PhysicalKey,
     window::Window,
 };
 
@@ -63,11 +62,10 @@ pub struct Sun {
     // This needs to go in model
     pub texture_ids: HashMap<String, TextureID>,
 
-    pub lined: bool,
-
     commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+    pub default_textures_loaded: bool,
 }
 
 impl Sun {
@@ -276,6 +274,10 @@ impl Sun {
     }
 
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
+        if !self.default_textures_loaded {
+            return;
+        }
+
         if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
             let mut vp = viewport.write().await;
 
@@ -289,11 +291,7 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let test_pp = if self.lined {
-                self.pipelines.get("line_shader.wgsl")
-            } else {
-                self.pipelines.get("basic_shader.wgsl")
-            };
+            let test_pp = self.pipelines.get("basic_shader.wgsl");
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -387,11 +385,10 @@ impl Default for Sun {
 
             texture_ids: HashMap::new(),
 
-            lined: false,
-
             commands: vec![],
 
             proxy: None,
+            default_textures_loaded: false,
         }
     }
 }
@@ -408,15 +405,7 @@ impl App for Sun {
             None,
         );
 
-        let load_line_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            Some("get shaders/line_shader.wgsl shader".into()),
-            None,
-        );
-
-        self.commands
-            .append(&mut vec![load_basic_shader, load_line_shader]);
+        self.commands.append(&mut vec![load_basic_shader]);
     }
 
     async fn process_command(&mut self, _cmd: Command) {}
@@ -500,6 +489,10 @@ impl App for Sun {
                             self.test_texture.as_ref().unwrap().uuid,
                             test_diffuse_bind_group,
                         );
+
+                        if asset.name.contains("missing") {
+                            self.default_textures_loaded = true;
+                        }
                     }
                 }
 
@@ -590,20 +583,20 @@ impl App for Sun {
                         }
                     }
                 }
-                WindowEvent::KeyboardInput {
-                    device_id: _,
-                    event,
-                    is_synthetic: _,
-                } => {
-                    if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
-                        && event.state == winit::event::ElementState::Released
-                    {
-                        self.lined = !self.lined;
-                        for vp in self.viewports.values() {
-                            vp.read().await.desc.window.request_redraw();
-                        }
-                    }
-                }
+                // WindowEvent::KeyboardInput {
+                //     device_id: _,
+                //     event,
+                //     is_synthetic: _,
+                // } => {
+                //     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+                //         && event.state == winit::event::ElementState::Released
+                //     {
+                //         self.lined = !self.lined;
+                //         for vp in self.viewports.values() {
+                //             vp.read().await.desc.window.request_redraw();
+                //         }
+                //     }
+                // }
                 _ => {}
             }
         }
