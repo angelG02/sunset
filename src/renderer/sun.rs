@@ -8,7 +8,6 @@ use wgpu::{util::DeviceExt, BufferUsages};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoopProxy,
-    keyboard::PhysicalKey,
     window::Window,
 };
 
@@ -115,7 +114,7 @@ impl Instance {
     }
 }
 
-const NUM_INSTANCES_PER_ROW: u32 = 10;
+const NUM_INSTANCES_PER_ROW: u32 = 1000;
 const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
     NUM_INSTANCES_PER_ROW as f32 * 0.5,
     0.0,
@@ -149,11 +148,10 @@ pub struct Sun {
     instances: Vec<Instance>,
     instance_buffer: Option<wgpu::Buffer>,
 
-    pub lined: bool,
-
     commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+    pub default_textures_loaded: bool,
 }
 
 impl Sun {
@@ -197,9 +195,9 @@ impl Sun {
         let vp_desc = ViewportDesc::new(
             Arc::clone(&window),
             wgpu::Color {
-                r: 105.0,
-                g: 0.0,
-                b: 0.0,
+                r: 17.0,
+                g: 252.0,
+                b: 115.0,
                 a: 0.0,
             },
             self.instance.as_ref().unwrap(),
@@ -352,6 +350,10 @@ impl Sun {
     }
 
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
+        if !self.default_textures_loaded {
+            return;
+        }
+
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
             let frame = vp.get_current_texture();
             let view = frame
@@ -363,11 +365,7 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let pipeline_entry = if self.lined {
-                self.pipelines.get_key_value("line_shader.wgsl")
-            } else {
-                self.pipelines.get_key_value("basic_shader.wgsl")
-            };
+            let test_pp = self.pipelines.get("basic_shader.wgsl");
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -393,7 +391,7 @@ impl Sun {
                 });
 
                 for primitive in &render_desc.primitives {
-                    if let Some((_, pipeline)) = pipeline_entry {
+                    if let Some(pipeline) = test_pp {
                         rpass.set_pipeline(&pipeline.pipeline);
                         if let Some(cam) = &self.current_camera {
                             // Diffuse texture bind group (set to default missing texture if not present on the primitive)
@@ -501,11 +499,10 @@ impl Default for Sun {
             current_camera_buffer: None,
             current_camera_uniform: None,
 
-            lined: false,
-
             commands: vec![],
 
             proxy: None,
+            default_textures_loaded: false,
         }
     }
 }
@@ -522,16 +519,7 @@ impl App for Sun {
             None,
         );
 
-        self.commands.push(load_basic_shader);
-
-        let load_line_shader = Command::new(
-            "asset_server",
-            CommandType::Get,
-            Some("get shaders/line_shader.wgsl shader".into()),
-            None,
-        );
-
-        self.commands.push(load_line_shader);
+        self.commands.append(&mut vec![load_basic_shader]);
     }
 
     async fn process_command(&mut self, _cmd: Command) {}
@@ -609,6 +597,10 @@ impl App for Sun {
                             self.test_texture.as_ref().unwrap().name.clone(),
                             self.test_texture.as_ref().unwrap().uuid,
                         );
+
+                        if asset.name.contains("missing") {
+                            self.default_textures_loaded = true;
+                        }
                     }
                 }
 
@@ -669,20 +661,20 @@ impl App for Sun {
                         }
                     }
                 }
-                WindowEvent::KeyboardInput {
-                    device_id: _,
-                    event,
-                    is_synthetic: _,
-                } => {
-                    if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
-                        && event.state == winit::event::ElementState::Released
-                    {
-                        self.lined = !self.lined;
-                        for vp in self.viewports.values() {
-                            vp.desc.window.request_redraw();
-                        }
-                    }
-                }
+                // WindowEvent::KeyboardInput {
+                //     device_id: _,
+                //     event,
+                //     is_synthetic: _,
+                // } => {
+                //     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+                //         && event.state == winit::event::ElementState::Released
+                //     {
+                //         self.lined = !self.lined;
+                //         for vp in self.viewports.values() {
+                //             vp.read().await.desc.window.request_redraw();
+                //         }
+                //     }
+                // }
                 _ => {}
             }
         }

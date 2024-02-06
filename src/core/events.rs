@@ -11,6 +11,7 @@ use crate::prelude::{
 pub struct NewWindowProps {
     pub size: PhysicalSize<u32>,
     pub name: String,
+    pub element_id: String,
     // Option<Decorations...icon...etc, etc>
 }
 
