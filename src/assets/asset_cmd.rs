@@ -27,7 +27,7 @@ impl AssetCommand {
                 let args: Vec<&str> = args.split(' ').collect();
                 match args[0] {
                     "-h" => AssetCommand::display_help(),
-                    "-from_server" => AssetCommand::get_from_server(args[1..].join(" "), elp),
+                    "-from_server" => AssetCommand::get_from_server(args[1..].join(" ")),
                     "-local" => AssetCommand::get_local(args[1..].join(" ")),
                     _ => AssetCommand::display_help(),
                 }
@@ -44,7 +44,7 @@ impl AssetCommand {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_from_server(
+    pub fn get_from_server(args: String) -> Option<Task<Vec<CommandEvent>>> {
         args: String,
         _elp: winit::event_loop::EventLoopProxy<CommandEvent>,
     ) -> Option<Task<Vec<CommandEvent>>> {
@@ -109,6 +109,47 @@ impl AssetCommand {
                     vec![]
                 }
             }
+        };
+
+        Some(Box::new(cmd))
+    }
+
+    pub fn get_local(args: String) -> Option<Task<Vec<CommandEvent>>> {
+        let cmd = move || {
+            let args: Vec<&str> = args.split(' ').collect();
+            let asset_type = args[2].to_ascii_lowercase().to_owned();
+            let asset_path = args[1].to_owned();
+            let asset_name = args[1].split('/').last().unwrap().to_owned();
+
+            let asset_type = match asset_type.as_str() {
+                "shader" => AssetType::Shader,
+                "string" => AssetType::String,
+                "texture" => AssetType::Texture,
+                _ => AssetType::Unknown,
+            };
+
+            let asset_folder_path = std::env::var("ASSETS_PATH").unwrap();
+            let full_path = format!("{asset_folder_path}{asset_path}");
+
+            let data = std::fs::read(full_path);
+
+            if data.is_ok() {
+                return vec![CommandEvent::Asset(Asset {
+                    asset_type,
+                    status: AssetStatus::Ready,
+                    data: data.unwrap(),
+                    name: asset_name,
+                    path: asset_path,
+                })];
+            }
+
+            vec![CommandEvent::Asset(Asset {
+                asset_type,
+                status: AssetStatus::NotFound,
+                data: vec![],
+                name: asset_name,
+                path: asset_path,
+            })]
         };
 
         Some(Box::new(cmd))
@@ -214,31 +255,6 @@ impl AssetCommand {
 
             //CommandEvent::FilePending(file_path.to_owned())
             vec![]
-        };
-
-        Some(Box::new(cmd))
-    }
-
-    fn get_local(args: String) -> Option<Task<Vec<CommandEvent>>> {
-        let cmd = move || {
-            let args: Vec<&str> = args.split(' ').collect();
-            debug!("Get Asset {}", args[0]);
-
-            let asset_path = args[1].to_owned();
-            let asset_name = args[1].split('/').last().unwrap().to_owned();
-
-            let asset_type = match args[1].to_ascii_lowercase().as_str() {
-                "shader" => AssetType::Shader,
-                "string" => AssetType::String,
-                _ => AssetType::Unknown,
-            };
-
-            vec![CommandEvent::Asset(Asset {
-                asset_type,
-                data: args[0].as_bytes().to_vec(),
-                name: asset_name,
-                path: asset_path,
-            })]
         };
 
         Some(Box::new(cmd))

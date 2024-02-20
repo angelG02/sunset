@@ -32,10 +32,7 @@ impl AssetServer {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         let task = match vec_args[0].to_ascii_lowercase().as_str() {
-            "get" => self.get(
-                &vec_args[1..].join(" "),
-                self.proxy.as_ref().unwrap().clone(),
-            ),
+            "get" => self.get(&vec_args[1..].join(" ")),
             //"put" => self.put(args),
             _ => AssetServer::unsupported(args.as_str()),
         };
@@ -47,11 +44,7 @@ impl AssetServer {
         self.commands.push(cmd);
     }
 
-    pub fn get(
-        &self,
-        args: &str,
-        elp: EventLoopProxy<CommandEvent>,
-    ) -> Option<Task<Vec<CommandEvent>>> {
+    pub fn get(&self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         if vec_args.len() < 2 {
@@ -61,7 +54,13 @@ impl AssetServer {
 
         let args = format!("{} {} {}", self.server_addr, vec_args[0], vec_args[1]);
 
-        AssetCommand::get_from_server(args, elp)
+        let cmd_args: Vec<String> = std::env::args().collect();
+
+        if cmd_args.contains(&"with-local-assets".to_string()) {
+            return AssetCommand::get_local(args);
+        }
+
+        AssetCommand::get_from_server(args)
     }
 }
 
