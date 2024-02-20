@@ -4,6 +4,7 @@ pub mod asset_server;
 #[derive(Debug, Clone)]
 pub struct Asset {
     pub asset_type: AssetType,
+    pub status: AssetStatus,
     pub data: Vec<u8>,
     pub name: String,
     pub path: String,
@@ -16,4 +17,12 @@ pub enum AssetType {
     Texture,
     Unknown,
     //...model, texture, audio...
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssetStatus {
+    Ready,
+    NotFound,
+    Pending,
+    Outdated,
 }

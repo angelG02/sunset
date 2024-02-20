@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_std::sync::RwLock;
 use async_trait::async_trait;
-use tracing::info;
+use tracing::{error, info};
 use wgpu::BufferUsages;
 use winit::{
     event::{Event, WindowEvent},
@@ -12,7 +12,7 @@ use winit::{
 
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
-    prelude::{command_queue::CommandType, state, Asset, AssetType},
+    prelude::{command_queue::CommandType, state, Asset, AssetStatus, AssetType},
 };
 
 pub type TextureID = uuid::Uuid;
@@ -313,21 +313,19 @@ impl Sun {
                     if let Some(pp) = test_pp {
                         rpass.set_pipeline(pp);
 
-                        // for i in 0..self.texture_ids.len() {
-                        //     rpass.set_bind_group(
-                        //         i as u32,
-                        //         self.bind_groups
-                        //             .get(self.texture_ids.get(i).unwrap())
-                        //             .unwrap(),
-                        //         &[],
-                        //     );
-                        // }
-
                         if let Some(tex_name) = &primitive.temp_diffuse {
-                            let tex_id = self.texture_ids.get(tex_name).unwrap();
-                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+                            if let Some(tex_id) = self.texture_ids.get(tex_name) {
+                                let bind_group = self.bind_groups.get(tex_id).unwrap();
 
-                            rpass.set_bind_group(0, bind_group, &[]);
+                                rpass.set_bind_group(0, bind_group, &[]);
+                            } else {
+                                error!("Texture wtih name: \"{}\" not initialized! It should be loaded into memory first.", tex_name);
+
+                                let tex_id = self.texture_ids.get("missing.jpg").unwrap();
+                                let bind_group = self.bind_groups.get(tex_id).unwrap();
+
+                                rpass.set_bind_group(0, bind_group, &[]);
+                            }
                         } else {
                             let tex_id = self.texture_ids.get("missing.jpg").unwrap();
                             let bind_group = self.bind_groups.get(tex_id).unwrap();
@@ -447,6 +445,11 @@ impl App for Sun {
                         self.shaders.insert(asset.name.clone(), asset.clone());
                     } else if asset.asset_type == AssetType::Texture {
                         let asset = asset.clone();
+
+                        if asset.status != AssetStatus::Ready {
+                            return;
+                        }
+
                         self.test_texture = Some(
                             GPUTexture::from_bytes(
                                 self.device.as_ref().unwrap(),

@@ -8,6 +8,8 @@ use crate::{
     },
 };
 
+use super::AssetStatus;
+
 #[allow(dead_code)]
 pub struct AssetCommand {
     pub processed: bool,
@@ -17,11 +19,7 @@ pub struct AssetCommand {
 }
 
 impl AssetCommand {
-    pub fn new(
-        command_type: CommandType,
-        args: String,
-        elp: winit::event_loop::EventLoopProxy<CommandEvent>,
-    ) -> Self {
+    pub fn new(command_type: CommandType, args: String) -> Self {
         let task = match command_type {
             CommandType::Get => {
                 let args: Vec<&str> = args.split(' ').collect();
@@ -45,9 +43,6 @@ impl AssetCommand {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn get_from_server(args: String) -> Option<Task<Vec<CommandEvent>>> {
-        args: String,
-        _elp: winit::event_loop::EventLoopProxy<CommandEvent>,
-    ) -> Option<Task<Vec<CommandEvent>>> {
         use std::{
             io::{Read, Write},
             net::TcpStream,
@@ -99,6 +94,7 @@ impl AssetCommand {
 
                     vec![CommandEvent::Asset(Asset {
                         asset_type,
+                        status: AssetStatus::Ready,
                         data,
                         name: asset_name,
                         path: asset_path,

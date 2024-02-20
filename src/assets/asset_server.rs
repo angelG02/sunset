@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use tracing::error;
+use tracing::{error, warn};
 use winit::event_loop::EventLoopProxy;
 
 use crate::core::{
@@ -8,7 +8,7 @@ use crate::core::{
     events::CommandEvent,
 };
 
-use super::asset_cmd::AssetCommand;
+use super::{asset_cmd::AssetCommand, AssetStatus};
 
 pub struct AssetServer {
     pub server_addr: String,
@@ -76,8 +76,13 @@ impl App for AssetServer {
 
     async fn process_event(
         &mut self,
-        _event: &winit::event::Event<crate::core::events::CommandEvent>,
+        event: &winit::event::Event<crate::core::events::CommandEvent>,
     ) {
+        if let winit::event::Event::UserEvent(CommandEvent::Asset(asset)) = event {
+            if asset.status == AssetStatus::NotFound {
+                warn!("File <{}> not found!", asset.path);
+            }
+        }
     }
 
     fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
