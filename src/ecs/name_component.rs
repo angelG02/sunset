@@ -6,9 +6,9 @@ pub struct NameComponent {
 }
 
 impl NameComponent {
-    pub fn from_args(args: Vec<&str>) -> Self {
-        Self {
+    pub fn from_args(args: Vec<&str>) -> Option<Self> {
+        Some(Self {
             name: args[0].to_owned(),
-        }
+        })
     }
 }

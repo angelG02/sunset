@@ -285,8 +285,8 @@ fn init_trace() {
         .with_target(false)
         .with_thread_ids(true)
         .with_thread_names(true)
-        .with_file(false)
-        .with_line_number(false)
+        .with_file(true)
+        .with_line_number(true)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)

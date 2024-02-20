@@ -13,6 +13,7 @@ use crate::{
         events::CommandEvent,
     },
     prelude::{
+        camera_component::CameraComponent,
         name_component::NameComponent,
         primitive::Primitive,
         state::initialized,
@@ -69,14 +70,26 @@ impl Scene {
         for (component_name, args) in components {
             match component_name {
                 "name" => {
-                    let name = NameComponent::from_args(args);
+                    let name = NameComponent::from_args(args).unwrap();
                     entity.insert(name);
                 }
                 "primitive" => {
-                    let primitive = Primitive::from_args(args);
+                    let primitive = Primitive::from_args(args.clone());
                     if let Some(primitive) = primitive {
                         render_data.push(primitive.clone());
                         entity.insert(primitive);
+                    }
+                }
+                "camera" => {
+                    let camera = CameraComponent::from_args(args.clone());
+                    if let Some(cam) = camera {
+                        entity.insert(cam);
+                    } else {
+                        error!(
+                            "Failed to create component <{}> with args <{:?}>",
+                            component_name,
+                            args.clone()
+                        );
                     }
                 }
                 _ => {
@@ -89,7 +102,6 @@ impl Scene {
         }
 
         let task = move || {
-            debug!("Add entity event!");
             let event = CommandEvent::RequestCreateBuffer(BufferDesc {
                 data: render_data.clone(),
             });
@@ -196,8 +208,18 @@ impl App for Scene {
             None,
         );
 
-        self.commands
-            .append(&mut vec![load_test_tex, load_basic_pentagon]);
+        let load_camera_2d = Command::new(
+            "default_scene",
+            CommandType::Get,
+            Some("add --name Camera2D --camera 2D -1 1 -1 1 0 0 -1 0 1".into()),
+            None,
+        );
+
+        self.commands.append(&mut vec![
+            load_test_tex,
+            load_basic_pentagon,
+            load_camera_2d,
+        ]);
     }
 
     async fn process_command(&mut self, cmd: Command) {
