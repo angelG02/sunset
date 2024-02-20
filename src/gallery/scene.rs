@@ -1,5 +1,8 @@
 use async_trait::async_trait;
-use bevy_ecs::{entity::Entity, query::WorldQuery};
+use bevy_ecs::{
+    entity::Entity,
+    query::{QueryFilter, With},
+};
 use tracing::{debug, error};
 use winit::event_loop::EventLoopProxy;
 
@@ -98,7 +101,7 @@ impl Scene {
     }
 
     pub fn get_entity_with_name(&mut self, name: &str) -> Option<Entity> {
-        let entities_with_name = self.query_world::<&NameComponent>();
+        let entities_with_name = self.query_world::<With<NameComponent>>();
 
         for entity in entities_with_name {
             let name_cmp = self.world.get::<NameComponent>(entity).unwrap();
@@ -109,14 +112,10 @@ impl Scene {
         None
     }
 
-    pub fn query_world<Components: WorldQuery>(&mut self) -> Vec<Entity> {
-        let mut query = self.world.query::<(Entity, Components)>();
+    pub fn query_world<Filter: QueryFilter>(&mut self) -> Vec<Entity> {
+        let mut query = self.world.query_filtered::<Entity, Filter>();
 
-        let mut entities: Vec<Entity> = Vec::new();
-
-        for (entity, _comp) in query.iter(&self.world) {
-            entities.push(entity);
-        }
+        let entities: Vec<Entity> = query.iter(&self.world).collect();
 
         entities
     }
@@ -142,7 +141,7 @@ impl Scene {
     }
 
     pub fn remove_entity(&mut self, name: &str) -> Option<Task<Vec<CommandEvent>>> {
-        let entitis = self.query_world::<&NameComponent>();
+        let entitis = self.query_world::<With<NameComponent>>();
 
         let mut events = Vec::new();
 

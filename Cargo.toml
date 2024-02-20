@@ -20,7 +20,7 @@ pollster = "0.3.0"
 cfg-if = "1.0.0"
 async-std = "1.12.0"
 web-time = "1.0.0"
-bevy_ecs = "0.12.1"
+bevy_ecs = "0.13.0"
 bytemuck = "1.14.0"
 image = "0.24.8"
 anyhow = "1.0"
@@ -63,8 +63,8 @@ web-sys = { version = "0.3", features = [
     'HtmlStyleElement'
 ] }
 uuid = { version = "1.6.1", features = [
-    "v4",                # Lets you generate random UUIDs
-    "fast-rng",          # Use a faster (but still sufficiently random) RNG
-    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    "v4",                
+    "fast-rng",          
+    "macro-diagnostics", 
     "js",
 ] }
