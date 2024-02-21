@@ -3,7 +3,7 @@ use bevy_ecs::{
     entity::Entity,
     query::{QueryFilter, With},
 };
-use tracing::{debug, error};
+use tracing::{error, warn};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
         events::CommandEvent,
     },
     prelude::{
-        camera_component::CameraComponent,
+        camera_component::{ActiveCameraComponent, CameraComponent},
         name_component::NameComponent,
         primitive::Primitive,
         state::initialized,
@@ -84,6 +84,9 @@ impl Scene {
                     let camera = CameraComponent::from_args(args.clone());
                     if let Some(cam) = camera {
                         entity.insert(cam);
+
+                        warn!("Note: (@A40) Please change active camera functionality!");
+                        entity.insert(ActiveCameraComponent {});
                     } else {
                         error!(
                             "Failed to create component <{}> with args <{:?}>",
@@ -130,6 +133,23 @@ impl Scene {
         let entities: Vec<Entity> = query.iter(&self.world).collect();
 
         entities
+    }
+
+    pub fn set_active_camera(&mut self, new_active_camera: Entity) {
+        let cam_entities =
+            self.query_world::<(With<CameraComponent>, With<ActiveCameraComponent>)>();
+
+        for e in cam_entities {
+            self.world
+                .get_entity_mut(e)
+                .unwrap()
+                .remove::<ActiveCameraComponent>();
+        }
+
+        self.world
+            .get_entity_mut(new_active_camera)
+            .unwrap()
+            .insert(ActiveCameraComponent {});
     }
 
     pub fn set_texture(
@@ -251,8 +271,22 @@ impl App for Scene {
                     primitives_for_renderer.push(primitive.clone());
                 }
 
+                let active_cams = self.query_world::<With<ActiveCameraComponent>>();
+
+                let active_cam: CameraComponent = if active_cams.len() > 0 {
+                    self.world
+                        .get_entity(active_cams[0])
+                        .unwrap()
+                        .get::<CameraComponent>()
+                        .unwrap()
+                        .clone()
+                } else {
+                    CameraComponent::default()
+                };
+
                 let render_desc = RenderDesc {
                     primitives: primitives_for_renderer,
+                    active_camera: active_cam,
                     window_id: *window_id,
                 };
                 self.proxy

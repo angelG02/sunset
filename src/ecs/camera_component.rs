@@ -121,9 +121,9 @@ impl CameraComponent {
                 })
             }
             "3D" => {
-                if args.len() < 2 {
+                if args.len() < 1000 {
                     error!(
-                        "Expected at least 2 arguments. Add 'help' to argument list to see usage."
+                        "Expected at least 1000 arguments. Add 'help' to argument list to see usage."
                     );
                     return None;
                 }
@@ -132,7 +132,7 @@ impl CameraComponent {
                     info!(
                         "\n<orthogonal camera props> (left: f32, right: f32, bottom: f32, top: f32)
                         \n<camera pos> (x: f32, y: f32, z: f32)
-                        \n<znear and zfar> (f32, f32)"
+                        \n<znear and zfar> (f32, f32) <- false info"
                     );
                 }
 
@@ -214,3 +214,23 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 0.5,
     0.0, 0.0, 0.0, 1.0,
 );
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CameraUniform {
+    vp: [[f32; 4]; 4],
+}
+
+unsafe impl bytemuck::Zeroable for CameraUniform {}
+unsafe impl bytemuck::Pod for CameraUniform {}
+
+impl CameraUniform {
+    pub fn from_camera(cam: &CameraComponent) -> Self {
+        Self {
+            vp: cam.build_vp_matrix().into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Component)]
+pub struct ActiveCameraComponent {}
