@@ -12,7 +12,10 @@ use winit::{
 
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
-    prelude::{command_queue::CommandType, state, Asset, AssetStatus, AssetType},
+    prelude::{
+        camera_component::CameraComponent, command_queue::CommandType, state, Asset, AssetStatus,
+        AssetType,
+    },
 };
 
 pub type TextureID = uuid::Uuid;
@@ -21,6 +24,7 @@ pub type PrimitiveID = uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct RenderDesc {
     pub primitives: Vec<Primitive>,
+    pub active_camera: CameraComponent,
     pub window_id: winit::window::WindowId,
 }
 
@@ -53,8 +57,6 @@ pub struct Sun {
     pub shaders: HashMap<String, Asset>,
     pub vertex_buffers: HashMap<PrimitiveID, SunBuffer>,
     pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
-
-    pub test_texture: Option<GPUTexture>,
 
     pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
     pub bind_groups: HashMap<TextureID, wgpu::BindGroup>,
@@ -377,7 +379,6 @@ impl Default for Sun {
             vertex_buffers: HashMap::new(),
             index_buffers: HashMap::new(),
 
-            test_texture: None,
             bind_groups: HashMap::new(),
             bind_group_layouts: HashMap::new(),
 
@@ -450,20 +451,15 @@ impl App for Sun {
                             return;
                         }
 
-                        self.test_texture = Some(
-                            GPUTexture::from_bytes(
-                                self.device.as_ref().unwrap(),
-                                self.queue.as_ref().unwrap(),
-                                asset.data.as_slice(),
-                                asset.name.as_str(),
-                            )
-                            .unwrap(),
-                        );
+                        let texture = GPUTexture::from_bytes(
+                            self.device.as_ref().unwrap(),
+                            self.queue.as_ref().unwrap(),
+                            asset.data.as_slice(),
+                            asset.name.as_str(),
+                        )
+                        .unwrap();
 
-                        self.texture_ids.insert(
-                            self.test_texture.as_ref().unwrap().name.clone(),
-                            self.test_texture.as_ref().unwrap().uuid,
-                        );
+                        self.texture_ids.insert(texture.name.clone(), texture.uuid);
 
                         let test_diffuse_bind_group = self
                             .device
@@ -475,23 +471,17 @@ impl App for Sun {
                                 entries: &[
                                     wgpu::BindGroupEntry {
                                         binding: 0,
-                                        resource: wgpu::BindingResource::TextureView(
-                                            &self.test_texture.as_ref().unwrap().view,
-                                        ),
+                                        resource: wgpu::BindingResource::TextureView(&texture.view),
                                     },
                                     wgpu::BindGroupEntry {
                                         binding: 1,
-                                        resource: wgpu::BindingResource::Sampler(
-                                            &self.test_texture.as_ref().unwrap().sampler,
-                                        ),
+                                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
                                     },
                                 ],
                             });
 
-                        self.bind_groups.insert(
-                            self.test_texture.as_ref().unwrap().uuid,
-                            test_diffuse_bind_group,
-                        );
+                        self.bind_groups
+                            .insert(texture.uuid, test_diffuse_bind_group);
 
                         if asset.name.contains("missing") {
                             self.default_textures_loaded = true;
