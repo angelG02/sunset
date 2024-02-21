@@ -19,6 +19,8 @@ pub struct NewWindowProps {
 pub enum CommandEvent {
     OpenWindow(NewWindowProps),
     CloseWindow((winit::window::WindowId, String)),
+
+    // TODO: (@A40) Add VP desc to the event
     RequestSurface(Arc<winit::window::Window>),
     RequestPipeline(PipelineDesc),
     RequestCreateBuffer(BufferDesc),
@@ -26,8 +28,5 @@ pub enum CommandEvent {
     Render(RenderDesc),
     Asset(Asset),
     Exit,
-    // File(String),
-    // FileNotFound,
-    // FilePending(String),
     None,
 }

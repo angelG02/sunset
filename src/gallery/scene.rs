@@ -231,7 +231,7 @@ impl App for Scene {
         let load_camera_2d = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Camera2D --camera 2D -1 1 -1 1 0 0 -1 0 1".into()),
+            Some("add --name Camera2D --camera 2D -1 1 -1 1 0 0 1 0 1".into()),
             None,
         );
 
@@ -295,6 +295,22 @@ impl App for Scene {
                     .send_event(CommandEvent::Render(render_desc))
                     .unwrap();
             }
+            // winit::event::Event::WindowEvent {
+            //     window_id: _,
+            //     event:
+            //         winit::event::WindowEvent::KeyboardInput {
+            //             device_id: _,
+            //             event,
+            //             is_synthetic: _,
+            //         },
+            // } => {
+            //     if event.physical_key
+            //         == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+            //         && event.state == winit::event::ElementState::Released
+            //     {
+
+            //     }
+            // }
             _ => {}
         }
     }

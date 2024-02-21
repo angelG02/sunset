@@ -13,12 +13,13 @@ use winit::{
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
     prelude::{
-        camera_component::CameraComponent, command_queue::CommandType, state, Asset, AssetStatus,
-        AssetType,
+        camera_component::{CameraComponent, CameraUniform},
+        command_queue::CommandType,
+        state, Asset, AssetStatus, AssetType,
     },
 };
 
-pub type TextureID = uuid::Uuid;
+pub type ResourceID = uuid::Uuid;
 pub type PrimitiveID = uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -39,8 +40,8 @@ pub struct PipelineDesc {
     pub win_id: winit::window::WindowId,
     pub shader_src: String,
     pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
-    pub bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
-    pub bind_group_layout_name: Option<String>,
+    pub bind_group_layout_desc: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
+    pub bind_group_layout_name: Vec<String>,
     pub topology: wgpu::PrimitiveTopology,
 }
 
@@ -59,10 +60,13 @@ pub struct Sun {
     pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
 
     pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
-    pub bind_groups: HashMap<TextureID, wgpu::BindGroup>,
+    pub bind_groups: HashMap<ResourceID, wgpu::BindGroup>,
+
+    pub active_camera_buffer: Option<SunBuffer>,
+    pub active_camera_bindgroup: Option<wgpu::BindGroup>,
 
     // This needs to go in model
-    pub texture_ids: HashMap<String, TextureID>,
+    pub resource_ids: HashMap<String, ResourceID>,
 
     commands: Vec<Command>,
 
@@ -141,21 +145,19 @@ impl Sun {
         name: String,
         shader_src: impl AsRef<str>,
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
-        bind_group_layout_desc: Option<wgpu::BindGroupLayoutDescriptor<'static>>,
-        bind_group_layout_name: Option<String>,
+        bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
+        bind_group_layout_names: Vec<String>,
         topology: wgpu::PrimitiveTopology,
     ) {
-        if let Some(bgld) = bind_group_layout_desc.clone() {
-            let texture_bind_group_layout = Some(
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .create_bind_group_layout(&bgld),
-            );
-            self.bind_group_layouts.insert(
-                bind_group_layout_name.unwrap(),
-                texture_bind_group_layout.unwrap(),
-            );
+        for index in 0..bind_group_layout_descs.len() {
+            let bind_group_layout = self
+                .device
+                .as_ref()
+                .unwrap()
+                .create_bind_group_layout(&bind_group_layout_descs[index]);
+
+            self.bind_group_layouts
+                .insert(bind_group_layout_names[index].clone(), bind_group_layout);
         }
 
         let vp = self.viewports.get(&win_id).unwrap();
@@ -256,6 +258,37 @@ impl Sun {
                 self.vertex_buffers.insert(primitive.uuid, vb);
             }
         }
+
+        if self.active_camera_buffer.is_none() {
+            let dummy_cam = CameraComponent::default();
+            let dummy_cam_uniform = CameraUniform::from_camera(&dummy_cam);
+
+            self.active_camera_buffer = Some(SunBuffer::new_with_data(
+                "Camera Uniform Buffer",
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                bytemuck::cast_slice(&[dummy_cam_uniform]),
+                self.device.as_ref().unwrap(),
+            ));
+
+            self.active_camera_bindgroup = Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Camera Uniform Bind Group"),
+                        layout: self.bind_group_layouts.get("camera").unwrap(),
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self
+                                .active_camera_buffer
+                                .as_ref()
+                                .unwrap()
+                                .get_buffer()
+                                .as_entire_binding(),
+                        }],
+                    }),
+            )
+        }
     }
 
     pub fn destroy_buffer(&mut self, id: PrimitiveID) {
@@ -315,30 +348,46 @@ impl Sun {
                     if let Some(pp) = test_pp {
                         rpass.set_pipeline(pp);
 
+                        // Camera Uniform Bind Group and Buffer Update
+                        if let Some(camera_bg) = &self.active_camera_bindgroup {
+                            let camera_uniform =
+                                CameraUniform::from_camera(&render_desc.active_camera);
+                            self.queue.as_ref().unwrap().write_buffer(
+                                self.active_camera_buffer.as_ref().unwrap().get_buffer(),
+                                0,
+                                bytemuck::cast_slice(&[camera_uniform]),
+                            );
+
+                            rpass.set_bind_group(0, camera_bg, &[]);
+                        }
+
+                        // Diffuse Texture Bind Group
                         if let Some(tex_name) = &primitive.temp_diffuse {
-                            if let Some(tex_id) = self.texture_ids.get(tex_name) {
+                            if let Some(tex_id) = self.resource_ids.get(tex_name) {
                                 let bind_group = self.bind_groups.get(tex_id).unwrap();
 
-                                rpass.set_bind_group(0, bind_group, &[]);
+                                rpass.set_bind_group(1, bind_group, &[]);
                             } else {
                                 error!("Texture wtih name: \"{}\" not initialized! It should be loaded into memory first.", tex_name);
 
-                                let tex_id = self.texture_ids.get("missing.jpg").unwrap();
+                                let tex_id = self.resource_ids.get("missing.jpg").unwrap();
                                 let bind_group = self.bind_groups.get(tex_id).unwrap();
 
-                                rpass.set_bind_group(0, bind_group, &[]);
+                                rpass.set_bind_group(1, bind_group, &[]);
                             }
                         } else {
-                            let tex_id = self.texture_ids.get("missing.jpg").unwrap();
+                            let tex_id = self.resource_ids.get("missing.jpg").unwrap();
                             let bind_group = self.bind_groups.get(tex_id).unwrap();
 
-                            rpass.set_bind_group(0, bind_group, &[]);
+                            rpass.set_bind_group(1, bind_group, &[]);
                         }
 
+                        // Vertex Buffer binding
                         if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
                             rpass.set_vertex_buffer(0, vb.get_buffer().slice(..));
                         }
 
+                        // Index Buffer binding
                         if let Some(ib) = self.index_buffers.get(&primitive.uuid) {
                             rpass.set_index_buffer(
                                 ib.get_buffer().slice(..),
@@ -382,7 +431,10 @@ impl Default for Sun {
             bind_groups: HashMap::new(),
             bind_group_layouts: HashMap::new(),
 
-            texture_ids: HashMap::new(),
+            active_camera_buffer: None,
+            active_camera_bindgroup: None,
+
+            resource_ids: HashMap::new(),
 
             commands: vec![],
 
@@ -459,7 +511,7 @@ impl App for Sun {
                         )
                         .unwrap();
 
-                        self.texture_ids.insert(texture.name.clone(), texture.uuid);
+                        self.resource_ids.insert(texture.name.clone(), texture.uuid);
 
                         let test_diffuse_bind_group = self
                             .device
@@ -467,7 +519,7 @@ impl App for Sun {
                             .unwrap()
                             .create_bind_group(&wgpu::BindGroupDescriptor {
                                 label: Some(&asset.name),
-                                layout: self.bind_group_layouts.get("basic_shader.wgsl").unwrap(),
+                                layout: self.bind_group_layouts.get("diffuse").unwrap(),
                                 entries: &[
                                     wgpu::BindGroupEntry {
                                         binding: 0,
@@ -515,9 +567,8 @@ impl App for Sun {
                 }
 
                 WindowEvent::RedrawRequested => {
-                    let line_bg_layout_desc = None;
-                    let basic_tex_bg_layout_desc = Some(wgpu::BindGroupLayoutDescriptor {
-                        label: Some("Diffuse Tex Bind Group Description"),
+                    let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                        label: Some("Diffuse Texture Bind Group"),
                         entries: &[
                             wgpu::BindGroupLayoutEntry {
                                 binding: 0,
@@ -540,7 +591,21 @@ impl App for Sun {
                                 count: None,
                             },
                         ],
-                    });
+                    };
+
+                    let camera_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                        entries: &[wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        }],
+                        label: Some("Camera Bind Group Layout"),
+                    };
 
                     for (name, shader) in &self.shaders {
                         if !self.pipelines.contains_key(name) {
@@ -557,14 +622,17 @@ impl App for Sun {
                                     wgpu::PrimitiveTopology::TriangleList
                                 },
                                 bind_group_layout_desc: if name.contains("line") {
-                                    line_bg_layout_desc.clone()
+                                    vec![]
                                 } else {
-                                    basic_tex_bg_layout_desc.clone()
+                                    vec![
+                                        camera_bg_layout_desc.clone(),
+                                        basic_tex_bg_layout_desc.clone(),
+                                    ]
                                 },
                                 bind_group_layout_name: if name.contains("line") {
-                                    None
+                                    vec![]
                                 } else {
-                                    Some(name.clone())
+                                    vec!["camera".into(), "diffuse".into()]
                                 },
                             };
 
