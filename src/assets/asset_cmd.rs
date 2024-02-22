@@ -19,13 +19,17 @@ pub struct AssetCommand {
 }
 
 impl AssetCommand {
-    pub fn new(command_type: CommandType, args: String) -> Self {
+    pub fn new(
+        command_type: CommandType,
+        args: String,
+        elp: winit::event_loop::EventLoopProxy<CommandEvent>,
+    ) -> Self {
         let task = match command_type {
             CommandType::Get => {
                 let args: Vec<&str> = args.split(' ').collect();
                 match args[0] {
                     "-h" => AssetCommand::display_help(),
-                    "-from_server" => AssetCommand::get_from_server(args[1..].join(" ")),
+                    "-from_server" => AssetCommand::get_from_server(args[1..].join(" "), elp),
                     "-local" => AssetCommand::get_local(args[1..].join(" ")),
                     _ => AssetCommand::display_help(),
                 }
@@ -42,7 +46,10 @@ impl AssetCommand {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn get_from_server(args: String) -> Option<Task<Vec<CommandEvent>>> {
+    pub fn get_from_server(
+        args: String,
+        _elp: winit::event_loop::EventLoopProxy<CommandEvent>,
+    ) -> Option<Task<Vec<CommandEvent>>> {
         use std::{
             io::{Read, Write},
             net::TcpStream,
@@ -220,6 +227,7 @@ impl AssetCommand {
                                     .send_event(CommandEvent::Asset(Asset {
                                         asset_type: asset_type_clone.clone(),
                                         data: array.to_vec(),
+                                        status: AssetStatus::Ready,
                                         name: asset_name_clone.clone(),
                                         path: asset_path_clone.clone(),
                                     }))
@@ -236,6 +244,7 @@ impl AssetCommand {
                             .send_event(CommandEvent::Asset(Asset {
                                 asset_type: asset_type.clone(),
                                 data: data.into(),
+                                status: AssetStatus::Ready,
                                 name: asset_name.clone(),
                                 path: asset_path.clone(),
                             }))
