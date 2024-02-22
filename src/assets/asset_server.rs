@@ -60,7 +60,7 @@ impl AssetServer {
             return AssetCommand::get_local(args);
         }
 
-        AssetCommand::get_from_server(args)
+        AssetCommand::get_from_server(args, self.proxy.clone().unwrap())
     }
 }
 
