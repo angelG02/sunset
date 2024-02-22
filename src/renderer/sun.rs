@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use async_std::sync::RwLock;
 use async_trait::async_trait;
 use tracing::{error, info};
 use wgpu::BufferUsages;
@@ -29,23 +28,12 @@ pub struct RenderDesc {
     pub window_id: winit::window::WindowId,
 }
 
-#[derive(Debug, Clone)]
-pub struct BufferDesc {
-    pub data: Vec<Primitive>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PipelineDesc {
-    pub name: String,
-    pub win_id: winit::window::WindowId,
-    pub shader_src: String,
-    pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
-    pub bind_group_layout_desc: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
-    pub bind_group_layout_name: Vec<String>,
-    pub topology: wgpu::PrimitiveTopology,
-}
-
-use super::{buffer::SunBuffer, primitive::Primitive, texture::GPUTexture};
+use super::{
+    buffer::{BufferDesc, SunBuffer},
+    pipeline::{PipelineDesc, SunPipeline},
+    primitive::Primitive,
+    texture::GPUTexture,
+};
 
 pub struct Sun {
     instance: Option<wgpu::Instance>,
@@ -53,14 +41,12 @@ pub struct Sun {
     device: Option<wgpu::Device>,
     queue: Option<wgpu::Queue>,
 
-    pub viewports: HashMap<winit::window::WindowId, Arc<RwLock<Viewport>>>,
-    pub pipelines: HashMap<String, wgpu::RenderPipeline>,
+    pub viewports: HashMap<winit::window::WindowId, Viewport>,
+    pub pipelines: HashMap<String, SunPipeline>,
     pub shaders: HashMap<String, Asset>,
+
     pub vertex_buffers: HashMap<PrimitiveID, SunBuffer>,
     pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
-
-    pub bind_group_layouts: HashMap<String, wgpu::BindGroupLayout>,
-    pub bind_groups: HashMap<ResourceID, wgpu::BindGroup>,
 
     pub active_camera_buffer: Option<SunBuffer>,
     pub active_camera_bindgroup: Option<wgpu::BindGroup>,
@@ -135,8 +121,7 @@ impl Sun {
             self.device.as_ref().unwrap(),
         );
 
-        self.viewports
-            .insert(window.id(), Arc::new(RwLock::new(vp)));
+        self.viewports.insert(window.id(), vp);
     }
 
     pub async fn create_pipeline(
@@ -146,86 +131,17 @@ impl Sun {
         shader_src: impl AsRef<str>,
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
         bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
-        bind_group_layout_names: Vec<String>,
         topology: wgpu::PrimitiveTopology,
     ) {
-        for index in 0..bind_group_layout_descs.len() {
-            let bind_group_layout = self
-                .device
-                .as_ref()
-                .unwrap()
-                .create_bind_group_layout(&bind_group_layout_descs[index]);
-
-            self.bind_group_layouts
-                .insert(bind_group_layout_names[index].clone(), bind_group_layout);
-        }
-
-        let vp = self.viewports.get(&win_id).unwrap();
-
-        let shader =
-            self.device
-                .as_ref()
-                .unwrap()
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some(&name),
-                    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::from(shader_src.as_ref())),
-                });
-
-        let layout =
-            self.device
-                .as_ref()
-                .unwrap()
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some(&name),
-                    bind_group_layouts: self
-                        .bind_group_layouts
-                        .values()
-                        .collect::<Vec<&_>>()
-                        .as_slice(),
-                    push_constant_ranges: &[],
-                });
-
-        let pipeline =
-            self.device
-                .as_ref()
-                .unwrap()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some(&name),
-                    layout: Some(&layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: "vs_main",
-                        buffers: vertex_buffer_layouts,
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: "fs_main",
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: vp.read().await.get_config().format,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology,
-                        strip_index_format: None,
-                        front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: Some(wgpu::Face::Back),
-                        // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                        polygon_mode: wgpu::PolygonMode::Fill,
-                        // Requires Features::DEPTH_CLIP_CONTROL
-                        unclipped_depth: false,
-                        // Requires Features::CONSERVATIVE_RASTERIZATION
-                        conservative: false,
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState {
-                        count: 1,
-                        mask: !0,
-                        alpha_to_coverage_enabled: false,
-                    },
-                    multiview: None,
-                });
+        let pipeline = SunPipeline::new(
+            self.device.as_ref().unwrap(),
+            self.viewports.get(&win_id).unwrap(),
+            name.clone(),
+            shader_src,
+            vertex_buffer_layouts,
+            bind_group_layout_descs,
+            topology,
+        );
 
         self.pipelines.insert(name, pipeline);
 
@@ -276,7 +192,13 @@ impl Sun {
                     .unwrap()
                     .create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Camera Uniform Bind Group"),
-                        layout: self.bind_group_layouts.get("camera").unwrap(),
+                        layout: self
+                            .pipelines
+                            .get("basic_shader.wgsl")
+                            .unwrap()
+                            .bind_group_layouts
+                            .get(0)
+                            .unwrap(),
                         entries: &[wgpu::BindGroupEntry {
                             binding: 0,
                             resource: self
@@ -313,9 +235,7 @@ impl Sun {
             return;
         }
 
-        if let Some(viewport) = self.viewports.get_mut(&render_desc.window_id) {
-            let mut vp = viewport.write().await;
-
+        if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
             let frame = vp.get_current_texture();
             let view = frame
                 .texture
@@ -326,7 +246,7 @@ impl Sun {
                 .unwrap()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let test_pp = self.pipelines.get("basic_shader.wgsl");
+            let basic_pipeline = self.pipelines.get("basic_shader.wgsl");
 
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -345,8 +265,8 @@ impl Sun {
                 });
 
                 for primitive in &render_desc.primitives {
-                    if let Some(pp) = test_pp {
-                        rpass.set_pipeline(pp);
+                    if let Some(pipe) = basic_pipeline {
+                        rpass.set_pipeline(&pipe.pipeline);
 
                         // Camera Uniform Bind Group and Buffer Update
                         if let Some(camera_bg) = &self.active_camera_bindgroup {
@@ -364,22 +284,22 @@ impl Sun {
                         // Diffuse Texture Bind Group
                         if let Some(tex_name) = &primitive.temp_diffuse {
                             if let Some(tex_id) = self.resource_ids.get(tex_name) {
-                                let bind_group = self.bind_groups.get(tex_id).unwrap();
+                                let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
 
-                                rpass.set_bind_group(1, bind_group, &[]);
+                                rpass.set_bind_group(*index, bind_group, &[]);
                             } else {
                                 error!("Texture wtih name: \"{}\" not initialized! It should be loaded into memory first.", tex_name);
 
                                 let tex_id = self.resource_ids.get("missing.jpg").unwrap();
-                                let bind_group = self.bind_groups.get(tex_id).unwrap();
+                                let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
 
-                                rpass.set_bind_group(1, bind_group, &[]);
+                                rpass.set_bind_group(*index, bind_group, &[]);
                             }
                         } else {
                             let tex_id = self.resource_ids.get("missing.jpg").unwrap();
-                            let bind_group = self.bind_groups.get(tex_id).unwrap();
+                            let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
 
-                            rpass.set_bind_group(1, bind_group, &[]);
+                            rpass.set_bind_group(*index, bind_group, &[]);
                         }
 
                         // Vertex Buffer binding
@@ -427,9 +347,6 @@ impl Default for Sun {
             shaders: HashMap::new(),
             vertex_buffers: HashMap::new(),
             index_buffers: HashMap::new(),
-
-            bind_groups: HashMap::new(),
-            bind_group_layouts: HashMap::new(),
 
             active_camera_buffer: None,
             active_camera_bindgroup: None,
@@ -487,7 +404,6 @@ impl App for Sun {
                         pipe_desc.shader_src,
                         &pipe_desc.vertex_buffer_layouts,
                         pipe_desc.bind_group_layout_desc,
-                        pipe_desc.bind_group_layout_name,
                         pipe_desc.topology,
                     )
                     .await;
@@ -513,14 +429,15 @@ impl App for Sun {
 
                         self.resource_ids.insert(texture.name.clone(), texture.uuid);
 
-                        let test_diffuse_bind_group = self
-                            .device
-                            .as_ref()
+                        self.pipelines
+                            .get_mut("basic_shader.wgsl")
                             .unwrap()
-                            .create_bind_group(&wgpu::BindGroupDescriptor {
-                                label: Some(&asset.name),
-                                layout: self.bind_group_layouts.get("diffuse").unwrap(),
-                                entries: &[
+                            .add_bind_group(
+                                self.device.as_ref().unwrap(),
+                                texture.uuid,
+                                "diffuse",
+                                1,
+                                &[
                                     wgpu::BindGroupEntry {
                                         binding: 0,
                                         resource: wgpu::BindingResource::TextureView(&texture.view),
@@ -530,10 +447,7 @@ impl App for Sun {
                                         resource: wgpu::BindingResource::Sampler(&texture.sampler),
                                     },
                                 ],
-                            });
-
-                        self.bind_groups
-                            .insert(texture.uuid, test_diffuse_bind_group);
+                            );
 
                         if asset.name.contains("missing") {
                             self.default_textures_loaded = true;
@@ -553,13 +467,10 @@ impl App for Sun {
                     // Recreate the swap chain with the new size
                     if let Some(viewport) = self.viewports.get_mut(window_id) {
                         {
-                            viewport
-                                .write()
-                                .await
-                                .resize(self.device.as_ref().unwrap(), new_size);
+                            viewport.resize(self.device.as_ref().unwrap(), new_size);
                         }
                         // On macos the window needs to be redrawn manually after resizing
-                        viewport.read().await.desc.window.request_redraw();
+                        viewport.desc.window.request_redraw();
                     }
                 }
                 WindowEvent::CloseRequested => {
@@ -677,7 +588,7 @@ impl App for Sun {
 }
 
 #[derive(Debug)]
-struct ViewportDesc {
+pub struct ViewportDesc {
     window: Arc<Window>,
     background: wgpu::Color,
     surface: wgpu::Surface<'static>,
@@ -724,6 +635,10 @@ impl ViewportDesc {
 
         Viewport { desc: self, config }
     }
+
+    pub fn window(&self) -> Arc<Window> {
+        self.window.clone()
+    }
 }
 
 impl Viewport {
@@ -747,5 +662,9 @@ impl Viewport {
 
     pub fn get_config(&self) -> &wgpu::SurfaceConfiguration {
         &self.config
+    }
+
+    pub fn get_description(&self) -> &ViewportDesc {
+        &self.desc
     }
 }

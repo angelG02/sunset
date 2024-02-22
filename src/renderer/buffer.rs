@@ -1,5 +1,12 @@
 use wgpu::{util::DeviceExt, Device};
 
+use super::primitive::Primitive;
+
+#[derive(Debug, Clone)]
+pub struct BufferDesc {
+    pub data: Vec<Primitive>,
+}
+
 #[derive(Debug)]
 pub struct SunBuffer {
     pub label: String,

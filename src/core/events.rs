@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use winit::dpi::PhysicalSize;
 
-use crate::prelude::{
-    sun::{BufferDesc, PipelineDesc, RenderDesc},
-    Asset,
-};
+use crate::prelude::{buffer::BufferDesc, pipeline::PipelineDesc, sun::RenderDesc, Asset};
 
 #[derive(Default, Debug, Clone)]
 pub struct NewWindowProps {

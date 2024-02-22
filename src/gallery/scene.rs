@@ -13,11 +13,12 @@ use crate::{
         events::CommandEvent,
     },
     prelude::{
+        buffer::BufferDesc,
         camera_component::{ActiveCameraComponent, CameraComponent},
         name_component::NameComponent,
         primitive::Primitive,
         state::initialized,
-        sun::{BufferDesc, RenderDesc},
+        sun::RenderDesc,
         util,
     },
 };
