@@ -62,8 +62,6 @@ impl App for CLI {
         self.process_cli_command(cmd);
     }
 
-    async fn process_event(&mut self, _event: &winit::event::Event<CommandEvent>) {}
-
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

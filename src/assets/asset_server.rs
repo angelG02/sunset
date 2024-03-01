@@ -56,7 +56,7 @@ impl AssetServer {
 
         let cmd_args: Vec<String> = std::env::args().collect();
 
-        if cmd_args.contains(&"with-local-assets".to_string()) {
+        if cmd_args.contains(&"local".to_string()) {
             return AssetCommand::get_local(args);
         }
 
@@ -74,11 +74,8 @@ impl App for AssetServer {
         self.process_asset_command(cmd)
     }
 
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<crate::core::events::CommandEvent>,
-    ) {
-        if let winit::event::Event::UserEvent(CommandEvent::Asset(asset)) = event {
+    async fn process_user_event(&mut self, event: &crate::core::events::CommandEvent) {
+        if let CommandEvent::Asset(asset) = event {
             if asset.status == AssetStatus::NotFound {
                 warn!("File <{}> not found!", asset.path);
             }

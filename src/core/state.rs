@@ -136,11 +136,22 @@ impl State {
         }
     }
 
-    pub async fn process_events(event: winit::event::Event<CommandEvent>) {
+    pub async fn process_window_events(
+        event: winit::event::WindowEvent,
+        id: winit::window::WindowId,
+    ) {
         let apps = &mut State::write().await.apps;
 
         for app in apps.values_mut() {
-            app.process_event(&event).await;
+            app.process_window_event(&event, id).await;
+        }
+    }
+
+    pub async fn process_user_events(event: CommandEvent) {
+        let apps = &mut State::write().await.apps;
+
+        for app in apps.values_mut() {
+            app.process_user_event(&event).await;
         }
     }
 
@@ -211,7 +222,7 @@ pub async fn run() {
     let mut current_time = web_time::Instant::now();
 
     event_loop
-        .run(move |event, elwt| {
+        .run(move |event, elwt: &winit::event_loop::EventLoopWindowTarget<CommandEvent>| {
             if !is_running() {
                 elwt.exit()
             }
@@ -226,37 +237,56 @@ pub async fn run() {
 
             elwt.set_control_flow(winit::event_loop::ControlFlow::Poll);
 
-            if let winit::event::Event::UserEvent(event) = event.clone() {
-                match event {
-                    CommandEvent::OpenWindow(props) => {
-                        let window = winit::window::WindowBuilder::new()
-                            .with_inner_size(winit::dpi::Size::Physical(props.size))
-                            .with_title(props.name.clone())
-                            .build(elwt)
-                            .expect("Could not create new window T-T");
-
-                        cfg_if::cfg_if! {
-                            if #[cfg(not(target_arch = "wasm32"))] {
-                                runtime.block_on(State::on_new_window_requested(props, window));
-                            }
-                            else {
-                                wasm_bindgen_futures::spawn_local(State::on_new_window_requested(props, window));
-                            }
+            match event {
+                winit::event::Event::UserEvent(event) => {
+                    cfg_if::cfg_if! {
+                        if #[cfg(not(target_arch = "wasm32"))] {
+                            runtime.block_on(State::process_user_events(event.clone()));
+                        }
+                        else {
+                            wasm_bindgen_futures::spawn_local(State::process_user_events(event.clone()));
                         }
                     }
-                    CommandEvent::Exit => {
-                        terminate();
+                    match event {
+                        CommandEvent::RequestNewWindow(props) => {
+                            let window = winit::window::WindowBuilder::new()
+                                .with_inner_size(winit::dpi::Size::Physical(props.size))
+                                .with_title(props.name.clone())
+                                .build(elwt)
+                                .expect("Could not create new window T-T");
+
+                            cfg_if::cfg_if! {
+                                if #[cfg(not(target_arch = "wasm32"))] {
+                                    runtime.block_on(State::on_new_window_requested(props, window));
+                                }
+                                else {
+                                    wasm_bindgen_futures::spawn_local(State::on_new_window_requested(props, window));
+                                }
+                            }
+                        }
+                        CommandEvent::Exit => {
+                            terminate();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                winit::event::Event::WindowEvent { window_id, event } => {
+                    cfg_if::cfg_if! {
+                        if #[cfg(not(target_arch = "wasm32"))] {
+                            runtime.block_on(State::process_window_events(event.clone(), window_id));
+                        }
+                        else {
+                            wasm_bindgen_futures::spawn_local(State::process_window_events(event.clone(), window_id));
+                        }
+            }
+                }
+                _ => {}
             }
             cfg_if::cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
-                    runtime.block_on(State::process_events(event.clone()));
                     runtime.block_on(State::update());
                 }
                 else {
-                    wasm_bindgen_futures::spawn_local(State::process_events(event.clone()));
                     wasm_bindgen_futures::spawn_local(State::update());
                 }
             }

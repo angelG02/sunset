@@ -255,16 +255,14 @@ impl App for Scene {
         }
     }
 
-    async fn process_event(
+    async fn process_window_event(
         &mut self,
-        event: &winit::event::Event<crate::core::events::CommandEvent>,
+        event: &winit::event::WindowEvent,
+        window_id: winit::window::WindowId,
     ) {
         #[allow(clippy::single_match)]
         match event {
-            winit::event::Event::WindowEvent {
-                window_id,
-                event: winit::event::WindowEvent::RedrawRequested,
-            } => {
+            winit::event::WindowEvent::RedrawRequested => {
                 let mut primitives_from_scene = self.world.query::<&Primitive>();
                 let mut primitives_for_renderer = vec![];
 
@@ -288,7 +286,7 @@ impl App for Scene {
                 let render_desc = RenderDesc {
                     primitives: primitives_for_renderer,
                     active_camera: active_cam,
-                    window_id: *window_id,
+                    window_id,
                 };
                 self.proxy
                     .as_ref()

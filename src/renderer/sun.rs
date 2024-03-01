@@ -3,11 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use tracing::{error, info};
 use wgpu::BufferUsages;
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::EventLoopProxy,
-    window::Window,
-};
+use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
@@ -40,6 +36,8 @@ pub struct Sun {
     adapter: Option<wgpu::Adapter>,
     device: Option<wgpu::Device>,
     queue: Option<wgpu::Queue>,
+
+    egui_renderer: Option<egui_wgpu::Renderer>,
 
     pub viewports: HashMap<winit::window::WindowId, Viewport>,
     pub pipelines: HashMap<String, SunPipeline>,
@@ -92,6 +90,13 @@ impl Sun {
             )
             .await
             .expect("Failed to create device");
+
+        self.egui_renderer = Some(egui_wgpu::Renderer::new(
+            &device,
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(wgpu::TextureFormat::Depth32Float),
+            1,
+        ));
 
         self.device = Some(device);
         self.queue = Some(queue);
@@ -341,6 +346,7 @@ impl Default for Sun {
             adapter: None,
             device: None,
             queue: None,
+            egui_renderer: None,
 
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
@@ -378,199 +384,196 @@ impl App for Sun {
 
     async fn process_command(&mut self, _cmd: Command) {}
 
-    async fn process_event(
-        &mut self,
-        event: &winit::event::Event<crate::core::events::CommandEvent>,
-    ) {
-        if let Event::UserEvent(event) = event {
-            match event {
-                CommandEvent::RequestSurface(window) => {
-                    self.create_viewport(Arc::clone(window)).await;
-                }
-                CommandEvent::CloseWindow((id, _)) => {
-                    self.viewports.remove(id);
-                }
-
-                CommandEvent::Render(render_desc) => {
-                    self.redraw(render_desc.clone()).await;
-                }
-
-                CommandEvent::RequestPipeline(pipe_desc) => {
-                    let pipe_desc = pipe_desc.clone();
-
-                    self.create_pipeline(
-                        pipe_desc.win_id,
-                        pipe_desc.name,
-                        pipe_desc.shader_src,
-                        &pipe_desc.vertex_buffer_layouts,
-                        pipe_desc.bind_group_layout_desc,
-                        pipe_desc.topology,
-                    )
-                    .await;
-                }
-
-                CommandEvent::Asset(asset) => {
-                    if asset.asset_type == AssetType::Shader {
-                        self.shaders.insert(asset.name.clone(), asset.clone());
-                    } else if asset.asset_type == AssetType::Texture {
-                        let asset = asset.clone();
-
-                        if asset.status != AssetStatus::Ready {
-                            return;
-                        }
-
-                        let texture = GPUTexture::from_bytes(
-                            self.device.as_ref().unwrap(),
-                            self.queue.as_ref().unwrap(),
-                            asset.data.as_slice(),
-                            asset.name.as_str(),
-                        )
-                        .unwrap();
-
-                        self.resource_ids.insert(texture.name.clone(), texture.uuid);
-
-                        self.pipelines
-                            .get_mut("basic_shader.wgsl")
-                            .unwrap()
-                            .add_bind_group(
-                                self.device.as_ref().unwrap(),
-                                texture.uuid,
-                                "diffuse",
-                                1,
-                                &[
-                                    wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: wgpu::BindingResource::TextureView(&texture.view),
-                                    },
-                                    wgpu::BindGroupEntry {
-                                        binding: 1,
-                                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                                    },
-                                ],
-                            );
-
-                        if asset.name.contains("missing") {
-                            self.default_textures_loaded = true;
-                        }
-                    }
-                }
-
-                CommandEvent::RequestCreateBuffer(desc) => self.generate_buffers(desc).await,
-                CommandEvent::RequestDestroyBuffer(id) => self.destroy_buffer(id.clone()),
-                _ => {}
+    async fn process_user_event(&mut self, event: &crate::core::events::CommandEvent) {
+        match event {
+            CommandEvent::OnWindowCreated(window) => {
+                self.create_viewport(Arc::clone(window)).await;
             }
-        }
+            CommandEvent::OnWindowClosed((id, _)) => {
+                self.viewports.remove(id);
+            }
 
-        if let Event::WindowEvent { window_id, event } = event {
-            match event {
-                WindowEvent::Resized(new_size) => {
-                    // Recreate the swap chain with the new size
-                    if let Some(viewport) = self.viewports.get_mut(window_id) {
-                        {
-                            viewport.resize(self.device.as_ref().unwrap(), new_size);
-                        }
-                        // On macos the window needs to be redrawn manually after resizing
-                        viewport.desc.window.request_redraw();
+            CommandEvent::Render(render_desc) => {
+                self.redraw(render_desc.clone()).await;
+            }
+
+            CommandEvent::RequestPipeline(pipe_desc) => {
+                let pipe_desc = pipe_desc.clone();
+
+                self.create_pipeline(
+                    pipe_desc.win_id,
+                    pipe_desc.name,
+                    pipe_desc.shader_src,
+                    &pipe_desc.vertex_buffer_layouts,
+                    pipe_desc.bind_group_layout_desc,
+                    pipe_desc.topology,
+                )
+                .await;
+            }
+
+            CommandEvent::Asset(asset) => {
+                if asset.asset_type == AssetType::Shader {
+                    self.shaders.insert(asset.name.clone(), asset.clone());
+                } else if asset.asset_type == AssetType::Texture {
+                    let asset = asset.clone();
+
+                    if asset.status != AssetStatus::Ready {
+                        return;
+                    }
+
+                    let texture = GPUTexture::from_bytes(
+                        self.device.as_ref().unwrap(),
+                        self.queue.as_ref().unwrap(),
+                        asset.data.as_slice(),
+                        asset.name.as_str(),
+                    )
+                    .unwrap();
+
+                    self.resource_ids.insert(texture.name.clone(), texture.uuid);
+
+                    self.pipelines
+                        .get_mut("basic_shader.wgsl")
+                        .unwrap()
+                        .add_bind_group(
+                            self.device.as_ref().unwrap(),
+                            texture.uuid,
+                            "diffuse",
+                            1,
+                            &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                                },
+                            ],
+                        );
+
+                    if asset.name.contains("missing") {
+                        self.default_textures_loaded = true;
                     }
                 }
-                WindowEvent::CloseRequested => {
-                    self.viewports.remove(window_id);
+            }
+
+            CommandEvent::RequestCreateBuffer(desc) => self.generate_buffers(desc).await,
+            CommandEvent::RequestDestroyBuffer(id) => self.destroy_buffer(id.clone()),
+            _ => {}
+        }
+    }
+
+    async fn process_window_event(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        window_id: winit::window::WindowId,
+    ) {
+        match event {
+            WindowEvent::Resized(new_size) => {
+                // Recreate the swap chain with the new size
+                if let Some(viewport) = self.viewports.get_mut(&window_id) {
+                    {
+                        viewport.resize(self.device.as_ref().unwrap(), new_size);
+                    }
+                    // On macos the window needs to be redrawn manually after resizing
+                    viewport.desc.window.request_redraw();
                 }
+            }
+            WindowEvent::CloseRequested => {
+                self.viewports.remove(&window_id);
+            }
 
-                WindowEvent::RedrawRequested => {
-                    let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
-                        label: Some("Diffuse Texture Bind Group"),
-                        entries: &[
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 0,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Texture {
-                                    sample_type: wgpu::TextureSampleType::Float {
-                                        filterable: true,
-                                    },
-                                    view_dimension: wgpu::TextureViewDimension::D2,
-                                    multisampled: false,
-                                },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 1,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                // This should match the filterable field of the
-                                // corresponding Texture entry above.
-                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                                count: None,
-                            },
-                        ],
-                    };
-
-                    let camera_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
-                        entries: &[wgpu::BindGroupLayoutEntry {
+            WindowEvent::RedrawRequested => {
+                let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Diffuse Texture Bind Group"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
                             binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
                             },
                             count: None,
-                        }],
-                        label: Some("Camera Bind Group Layout"),
-                    };
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            // This should match the filterable field of the
+                            // corresponding Texture entry above.
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                };
 
-                    for (name, shader) in &self.shaders {
-                        if !self.pipelines.contains_key(name) {
-                            let pipe_desc = PipelineDesc {
-                                name: name.clone(),
-                                win_id: *window_id,
-                                shader_src: std::str::from_utf8(shader.data.clone().as_slice())
-                                    .unwrap()
-                                    .to_owned(),
-                                vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
-                                topology: if name.contains("line") {
-                                    wgpu::PrimitiveTopology::LineList
-                                } else {
-                                    wgpu::PrimitiveTopology::TriangleList
-                                },
-                                bind_group_layout_desc: if name.contains("line") {
-                                    vec![]
-                                } else {
-                                    vec![
-                                        camera_bg_layout_desc.clone(),
-                                        basic_tex_bg_layout_desc.clone(),
-                                    ]
-                                },
-                                bind_group_layout_name: if name.contains("line") {
-                                    vec![]
-                                } else {
-                                    vec!["camera".into(), "diffuse".into()]
-                                },
-                            };
+                let camera_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                    label: Some("Camera Bind Group Layout"),
+                };
 
-                            self.proxy
-                                .as_ref()
+                for (name, shader) in &self.shaders {
+                    if !self.pipelines.contains_key(name) {
+                        let pipe_desc = PipelineDesc {
+                            name: name.clone(),
+                            win_id: window_id,
+                            shader_src: std::str::from_utf8(shader.data.clone().as_slice())
                                 .unwrap()
-                                .send_event(CommandEvent::RequestPipeline(pipe_desc))
-                                .unwrap();
-                        }
+                                .to_owned(),
+                            vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                            topology: if name.contains("line") {
+                                wgpu::PrimitiveTopology::LineList
+                            } else {
+                                wgpu::PrimitiveTopology::TriangleList
+                            },
+                            bind_group_layout_desc: if name.contains("line") {
+                                vec![]
+                            } else {
+                                vec![
+                                    camera_bg_layout_desc.clone(),
+                                    basic_tex_bg_layout_desc.clone(),
+                                ]
+                            },
+                            bind_group_layout_name: if name.contains("line") {
+                                vec![]
+                            } else {
+                                vec!["camera".into(), "diffuse".into()]
+                            },
+                        };
+
+                        self.proxy
+                            .as_ref()
+                            .unwrap()
+                            .send_event(CommandEvent::RequestPipeline(pipe_desc))
+                            .unwrap();
                     }
                 }
-                // WindowEvent::KeyboardInput {
-                //     device_id: _,
-                //     event,
-                //     is_synthetic: _,
-                // } => {
-                //     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
-                //         && event.state == winit::event::ElementState::Released
-                //     {
-                //         self.lined = !self.lined;
-                //         for vp in self.viewports.values() {
-                //             vp.read().await.desc.window.request_redraw();
-                //         }
-                //     }
-                // }
-                _ => {}
             }
+            // WindowEvent::KeyboardInput {
+            //     device_id: _,
+            //     event,
+            //     is_synthetic: _,
+            // } => {
+            //     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
+            //         && event.state == winit::event::ElementState::Released
+            //     {
+            //         self.lined = !self.lined;
+            //         for vp in self.viewports.values() {
+            //             vp.read().await.desc.window.request_redraw();
+            //         }
+            //     }
+            // }
+            _ => {}
         }
     }
 

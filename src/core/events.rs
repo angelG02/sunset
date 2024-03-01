@@ -14,11 +14,11 @@ pub struct NewWindowProps {
 
 #[derive(Debug, Clone)]
 pub enum CommandEvent {
-    OpenWindow(NewWindowProps),
-    CloseWindow((winit::window::WindowId, String)),
-
+    RequestNewWindow(NewWindowProps),
+    OnWindowClosed((winit::window::WindowId, String)),
     // TODO: (@A40) Add VP desc to the event
-    RequestSurface(Arc<winit::window::Window>),
+    OnWindowCreated(Arc<winit::window::Window>),
+
     RequestPipeline(PipelineDesc),
     RequestCreateBuffer(BufferDesc),
     RequestDestroyBuffer(uuid::Uuid),

@@ -19,6 +19,14 @@ pub trait App {
     ///
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>);
 
+    fn on_frame_start(&mut self) -> Vec<Command> {
+        vec![]
+    }
+
+    fn on_frame_end(&mut self) -> Vec<Command> {
+        vec![]
+    }
+
     /// Queues commands to be processed by the application duricng the current frame.
     ///
     /// # Returns
@@ -35,14 +43,14 @@ pub trait App {
     ///
     async fn process_command(&mut self, cmd: Command);
 
-    /// Processes an event asynchronously.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - an event dispatched from the event loop.
-    /// * `elp` - The event loop proxy (can be used to send other events when the current one has been handled).
-    ///
-    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>);
+    async fn process_window_event(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        window_id: winit::window::WindowId,
+    ) {
+    }
+
+    async fn process_user_event(&mut self, event: &CommandEvent) {}
 
     fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>>
     where

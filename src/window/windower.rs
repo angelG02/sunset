@@ -56,7 +56,7 @@ impl Windower {
 
         let cmd = move || {
             let args_vec: Vec<&str> = args.split(' ').collect();
-            let event = CommandEvent::OpenWindow(NewWindowProps {
+            let event = CommandEvent::RequestNewWindow(NewWindowProps {
                 name: args_vec[0].to_string(),
                 size: PhysicalSize {
                     width: args_vec[1].parse::<u32>().unwrap_or(1024),
@@ -91,7 +91,7 @@ impl Windower {
         let mut events: Vec<CommandEvent> = vec![];
 
         for window in &windows {
-            events.push(CommandEvent::CloseWindow((*window, name.clone())));
+            events.push(CommandEvent::OnWindowClosed((*window, name.clone())));
         }
 
         if !events.is_empty() {
@@ -125,7 +125,7 @@ impl Windower {
         self.proxy
             .as_ref()
             .unwrap()
-            .send_event(CommandEvent::RequestSurface(Arc::clone(window)))
+            .send_event(CommandEvent::OnWindowCreated(Arc::clone(window)))
             .expect("Failed to send event!");
 
         #[cfg(target_arch = "wasm32")]
@@ -211,17 +211,19 @@ impl App for Windower {
         self.process_window_command(cmd);
     }
 
-    async fn process_event(&mut self, event: &winit::event::Event<CommandEvent>) {
-        if let winit::event::Event::WindowEvent {
-            window_id,
-            event: winit::event::WindowEvent::CloseRequested,
-        } = event
-        {
-            self.windows.remove(window_id);
-            self.window_names.remove(window_id);
+    async fn process_window_event(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        window_id: winit::window::WindowId,
+    ) {
+        if let winit::event::WindowEvent::CloseRequested = event {
+            self.windows.remove(&window_id);
+            self.window_names.remove(&window_id);
         }
+    }
 
-        if let winit::event::Event::UserEvent(CommandEvent::CloseWindow((id, _))) = event {
+    async fn process_user_event(&mut self, event: &CommandEvent) {
+        if let CommandEvent::OnWindowClosed((id, _)) = event {
             self.windows.remove(id);
             self.window_names.remove(id);
         }
