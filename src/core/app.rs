@@ -45,12 +45,12 @@ pub trait App {
 
     async fn process_window_event(
         &mut self,
-        event: &winit::event::WindowEvent,
-        window_id: winit::window::WindowId,
+        _event: &winit::event::WindowEvent,
+        _window_id: winit::window::WindowId,
     ) {
     }
 
-    async fn process_user_event(&mut self, event: &CommandEvent) {}
+    async fn process_user_event(&mut self, _event: &CommandEvent) {}
 
     fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>>
     where

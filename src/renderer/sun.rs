@@ -37,8 +37,6 @@ pub struct Sun {
     device: Option<wgpu::Device>,
     queue: Option<wgpu::Queue>,
 
-    egui_renderer: Option<egui_wgpu::Renderer>,
-
     pub viewports: HashMap<winit::window::WindowId, Viewport>,
     pub pipelines: HashMap<String, SunPipeline>,
     pub shaders: HashMap<String, Asset>,
@@ -90,13 +88,6 @@ impl Sun {
             )
             .await
             .expect("Failed to create device");
-
-        self.egui_renderer = Some(egui_wgpu::Renderer::new(
-            &device,
-            wgpu::TextureFormat::Rgba8Unorm,
-            Some(wgpu::TextureFormat::Depth32Float),
-            1,
-        ));
 
         self.device = Some(device);
         self.queue = Some(queue);
@@ -346,7 +337,6 @@ impl Default for Sun {
             adapter: None,
             device: None,
             queue: None,
-            egui_renderer: None,
 
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
