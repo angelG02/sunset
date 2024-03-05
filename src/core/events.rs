@@ -12,7 +12,7 @@ pub struct NewWindowProps {
     // Option<Decorations...icon...etc, etc>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum CommandEvent {
     RequestNewWindow(NewWindowProps),
     OnWindowClosed((winit::window::WindowId, String)),
@@ -26,4 +26,29 @@ pub enum CommandEvent {
     Asset(Asset),
     Exit,
     None,
+}
+
+impl std::fmt::Debug for CommandEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommandEvent::RequestNewWindow(props) => write!(f, "Event <NewWindow> with: {props:?}"),
+            CommandEvent::OnWindowClosed((id, name)) => {
+                write!(f, "Event <WindowClosed> with: {id:?}, {name:?}")
+            }
+            CommandEvent::OnWindowCreated(_) => write!(f, "Event <OnWindowCreated>"),
+            CommandEvent::RequestPipeline(props) => {
+                write!(f, "Event <RequestPipeline> with: {props:?}")
+            }
+            CommandEvent::RequestCreateBuffer(desc) => {
+                write!(f, "Event <RequestCreateBuffer> with: {desc:?}")
+            }
+            CommandEvent::RequestDestroyBuffer(id) => {
+                write!(f, "Event <RequestCreateBuffer> with: {id:?}")
+            }
+            CommandEvent::Render(_) => write!(f, "Event <Render>"),
+            CommandEvent::Asset(asset) => write!(f, "Event <Asset> with: {asset:?}"),
+            CommandEvent::Exit => write!(f, "Event <Exit>"),
+            CommandEvent::None => write!(f, "Event <None>"),
+        }
+    }
 }
