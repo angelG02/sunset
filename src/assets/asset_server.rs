@@ -1,18 +1,27 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use winit::event_loop::EventLoopProxy;
 
-use crate::core::{
-    app::App,
-    command_queue::{Command, Task},
-    events::CommandEvent,
+use std::io::{BufReader, Cursor};
+
+use crate::{
+    core::{
+        app::App,
+        command_queue::{Command, Task},
+        events::CommandEvent,
+    },
+    prelude::command_queue::CommandType,
 };
 
-use super::{asset_cmd::AssetCommand, AssetStatus};
+use super::{asset_cmd::AssetCommand, Asset, AssetStatus, AssetType};
 
 pub struct AssetServer {
     pub server_addr: String,
     pub commands: Vec<Command>,
+
+    pub cached_assets: HashMap<String, Asset>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
 }
@@ -22,6 +31,8 @@ impl AssetServer {
         AssetServer {
             server_addr: addr,
             commands: vec![],
+
+            cached_assets: HashMap::new(),
 
             proxy: None,
         }
@@ -75,10 +86,55 @@ impl App for AssetServer {
     }
 
     async fn process_user_event(&mut self, event: &crate::core::events::CommandEvent) {
-        if let CommandEvent::Asset(asset) = event {
-            if asset.status == AssetStatus::NotFound {
-                warn!("File <{}> not found!", asset.path);
+        match event {
+            CommandEvent::Asset(asset) => {
+                if asset.status == AssetStatus::NotFound {
+                    warn!("File <{}> not found!", asset.path);
+                } else {
+                    self.cached_assets.insert(asset.path.clone(), asset.clone());
+                    if asset.asset_type == AssetType::Model {
+                        let cursor = Cursor::new(&asset.data);
+                        let reader = BufReader::new(cursor);
+
+                        let gltf_model = gltf::Gltf::from_reader(reader);
+
+                        if let Ok(model) = gltf_model {
+                            info!("meshes: ");
+                            for mesh in model.meshes() {
+                                info!("{mesh:?}");
+                            }
+                            info!("materials: ");
+                            for mat in model.materials() {
+                                info!("{mat:?}");
+                            }
+                        } else {
+                            error!("Failed to parse model ({}) to gltf!", asset.path.clone());
+                        }
+                    }
+                }
             }
+            CommandEvent::RequestCreateModel(model_comp) => {
+                let Some(model_path) = model_comp.model_path.clone() else {
+                    return;
+                };
+
+                if self.cached_assets.contains_key(&model_path) {
+                    return;
+                }
+
+                let task = self.get(&format!("{} model", model_path));
+
+                let cmd = Command {
+                    app: "asset_server".into(),
+                    command_type: CommandType::Get,
+                    processed: true,
+                    args: None,
+                    task,
+                };
+
+                self.commands.push(cmd);
+            }
+            _ => {}
         }
     }
 

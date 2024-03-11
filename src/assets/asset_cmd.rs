@@ -55,7 +55,7 @@ impl AssetCommand {
             net::TcpStream,
         };
 
-        use tracing::error;
+        use tracing::{error, warn};
 
         // 127.0.0.1 shader.wgsl shader
         let cmd = move || {
@@ -96,7 +96,13 @@ impl AssetCommand {
                         "shader" => AssetType::Shader,
                         "string" => AssetType::String,
                         "texture" => AssetType::Texture,
-                        _ => AssetType::Unknown,
+                        "model" => AssetType::Model,
+                        "mesh" => AssetType::Mesh,
+                        "material" => AssetType::Material,
+                        _ => {
+                            warn!("Unkown asset type requested: {asset_type:?}");
+                            AssetType::Unknown
+                        }
                     };
 
                     vec![CommandEvent::Asset(Asset {
@@ -128,6 +134,9 @@ impl AssetCommand {
                 "shader" => AssetType::Shader,
                 "string" => AssetType::String,
                 "texture" => AssetType::Texture,
+                "model" => AssetType::Model,
+                "mesh" => AssetType::Mesh,
+                "material" => AssetType::Material,
                 _ => AssetType::Unknown,
             };
 

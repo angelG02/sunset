@@ -474,52 +474,54 @@ impl App for Sun {
             }
 
             WindowEvent::RedrawRequested => {
-                let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Diffuse Texture Bind Group"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            // This should match the filterable field of the
-                            // corresponding Texture entry above.
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                };
-
-                let camera_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("Camera Bind Group Layout"),
-                };
-
                 for (name, shader) in &self.shaders {
                     if !self.pipelines.contains_key(name) {
+                        let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                            label: Some("Diffuse Texture Bind Group"),
+                            entries: &[
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 0,
+                                    visibility: wgpu::ShaderStages::FRAGMENT,
+                                    ty: wgpu::BindingType::Texture {
+                                        sample_type: wgpu::TextureSampleType::Float {
+                                            filterable: true,
+                                        },
+                                        view_dimension: wgpu::TextureViewDimension::D2,
+                                        multisampled: false,
+                                    },
+                                    count: None,
+                                },
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 1,
+                                    visibility: wgpu::ShaderStages::FRAGMENT,
+                                    // This should match the filterable field of the
+                                    // corresponding Texture entry above.
+                                    ty: wgpu::BindingType::Sampler(
+                                        wgpu::SamplerBindingType::Filtering,
+                                    ),
+                                    count: None,
+                                },
+                            ],
+                        };
+
+                        let camera_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
+                            entries: &[wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::VERTEX,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Uniform,
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            }],
+                            label: Some("Camera Bind Group Layout"),
+                        };
+
                         let pipe_desc = PipelineDesc {
                             name: name.clone(),
                             win_id: window_id,
-                            shader_src: std::str::from_utf8(shader.data.clone().as_slice())
-                                .unwrap()
-                                .to_owned(),
+                            shader_src: String::from_utf8(shader.data.clone()).unwrap(),
                             vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
                             topology: if name.contains("line") {
                                 wgpu::PrimitiveTopology::LineList

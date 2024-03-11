@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use winit::dpi::PhysicalSize;
 
-use crate::prelude::{buffer::BufferDesc, pipeline::PipelineDesc, sun::RenderDesc, Asset};
+use crate::prelude::{
+    buffer::BufferDesc, model_component::ModelComponent, pipeline::PipelineDesc, sun::RenderDesc,
+    Asset,
+};
 
 #[derive(Default, Debug, Clone)]
 pub struct NewWindowProps {
@@ -23,7 +26,10 @@ pub enum CommandEvent {
     RequestCreateBuffer(BufferDesc),
     RequestDestroyBuffer(uuid::Uuid),
     Render(RenderDesc),
+
     Asset(Asset),
+    RequestCreateModel(ModelComponent),
+
     Exit,
     None,
 }
@@ -49,6 +55,9 @@ impl std::fmt::Debug for CommandEvent {
             CommandEvent::Asset(asset) => write!(f, "Event <Asset> with: {asset:?}"),
             CommandEvent::Exit => write!(f, "Event <Exit>"),
             CommandEvent::None => write!(f, "Event <None>"),
+            CommandEvent::RequestCreateModel(model_comp) => {
+                write!(f, "Event <RequestCreateModel> with: {model_comp:?}")
+            }
         }
     }
 }

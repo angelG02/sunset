@@ -11,16 +11,15 @@ use crate::{
         app::App,
         command_queue::{Command, CommandType, Task},
         events::CommandEvent,
-    },
-    prelude::{
-        buffer::BufferDesc,
-        camera_component::{ActiveCameraComponent, CameraComponent},
-        name_component::NameComponent,
-        primitive::Primitive,
         state::initialized,
-        sun::RenderDesc,
         util,
     },
+    ecs::{
+        camera_component::{ActiveCameraComponent, CameraComponent},
+        model_component::ModelComponent,
+        name_component::NameComponent,
+    },
+    renderer::{primitive::Primitive, sun::RenderDesc},
 };
 
 #[derive(Default)]
@@ -64,7 +63,7 @@ impl Scene {
     pub async fn add_entity(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
         let components = util::extract_arguments(args);
 
-        let mut render_data = Vec::new();
+        let mut events = Vec::new();
 
         let mut entity = self.world.spawn_empty();
 
@@ -74,12 +73,10 @@ impl Scene {
                     let name = NameComponent::from_args(args).unwrap();
                     entity.insert(name);
                 }
-                "primitive" => {
-                    let primitive = Primitive::from_args(args.clone());
-                    if let Some(primitive) = primitive {
-                        render_data.push(primitive.clone());
-                        entity.insert(primitive);
-                    }
+                "model" => {
+                    let model = ModelComponent::from_args(args.clone());
+                    events.push(CommandEvent::RequestCreateModel(model.clone()));
+                    entity.insert(model);
                 }
                 "camera" => {
                     let camera = CameraComponent::from_args(args.clone());
@@ -105,13 +102,7 @@ impl Scene {
             }
         }
 
-        let task = move || {
-            let event = CommandEvent::RequestCreateBuffer(BufferDesc {
-                data: render_data.clone(),
-            });
-
-            vec![event]
-        };
+        let task = move || events.clone();
 
         Some(Box::new(task))
     }
@@ -215,17 +206,17 @@ impl App for Scene {
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 
-        let load_test_tex = Command::new(
+        let load_missing_tex = Command::new(
             "asset_server",
             CommandType::Get,
             Some("get textures/missing.jpg texture".into()),
             None,
         );
 
-        let load_basic_pentagon = Command::new(
+        let load_basic_cube = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Penta --primitive pentagon".into()),
+            Some("add --name Cube --model models/avocado/avocado.glb".into()),
             None,
         );
 
@@ -236,11 +227,8 @@ impl App for Scene {
             None,
         );
 
-        self.commands.append(&mut vec![
-            load_test_tex,
-            load_basic_pentagon,
-            load_camera_2d,
-        ]);
+        self.commands
+            .append(&mut vec![load_missing_tex, load_basic_cube, load_camera_2d]);
     }
 
     async fn process_command(&mut self, cmd: Command) {
