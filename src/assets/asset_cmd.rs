@@ -192,6 +192,9 @@ impl AssetCommand {
                 "shader" => AssetType::Shader,
                 "string" => AssetType::String,
                 "texture" => AssetType::Texture,
+                "model" => AssetType::Model,
+                "mesh" => AssetType::Mesh,
+                "material" => AssetType::Material,
                 _ => AssetType::Unknown,
             };
 
