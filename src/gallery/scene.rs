@@ -216,7 +216,7 @@ impl App for Scene {
         let load_basic_cube = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Cube --model models/avocado/avocado.glb".into()),
+            Some("add --name Cube --model models/avocado/Avocado.glb".into()),
             None,
         );
 

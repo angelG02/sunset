@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use winit::event_loop::EventLoopProxy;
-
-use std::io::{BufReader, Cursor};
 
 use crate::{
     core::{
@@ -15,7 +13,7 @@ use crate::{
     prelude::command_queue::CommandType,
 };
 
-use super::{asset_cmd::AssetCommand, Asset, AssetStatus, AssetType};
+use super::{asset_cmd::AssetCommand, Asset, AssetStatus};
 
 pub struct AssetServer {
     pub server_addr: String,
@@ -92,25 +90,6 @@ impl App for AssetServer {
                     warn!("File <{}> not found!", asset.path);
                 } else {
                     self.cached_assets.insert(asset.path.clone(), asset.clone());
-                    if asset.asset_type == AssetType::Model {
-                        let cursor = Cursor::new(&asset.data);
-                        let reader = BufReader::new(cursor);
-
-                        let gltf_model = gltf::Gltf::from_reader(reader);
-
-                        if let Ok(model) = gltf_model {
-                            info!("meshes: ");
-                            for mesh in model.meshes() {
-                                info!("{mesh:?}");
-                            }
-                            info!("materials: ");
-                            for mat in model.materials() {
-                                info!("{mat:?}");
-                            }
-                        } else {
-                            error!("Failed to parse model ({}) to gltf!", asset.path.clone());
-                        }
-                    }
                 }
             }
             CommandEvent::RequestCreateModel(model_comp) => {

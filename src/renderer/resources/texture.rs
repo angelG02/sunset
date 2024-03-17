@@ -1,7 +1,7 @@
 use anyhow::*;
 use image::GenericImageView;
 
-pub struct GPUTexture {
+pub struct SunTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -10,7 +10,7 @@ pub struct GPUTexture {
     pub uuid: uuid::Uuid,
 }
 
-impl GPUTexture {
+impl SunTexture {
     pub fn from_bytes(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

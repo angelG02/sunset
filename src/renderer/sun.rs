@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use tracing::{error, info};
-use wgpu::BufferUsages;
 use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 
 use crate::{
@@ -25,10 +24,13 @@ pub struct RenderDesc {
 }
 
 use super::{
-    buffer::{BufferDesc, SunBuffer},
+    buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
     primitive::Primitive,
-    texture::GPUTexture,
+    resources::{
+        model::{DrawModel, SunModel},
+        texture::SunTexture,
+    },
 };
 
 pub struct Sun {
@@ -41,14 +43,13 @@ pub struct Sun {
     pub pipelines: HashMap<String, SunPipeline>,
     pub shaders: HashMap<String, Asset>,
 
-    pub vertex_buffers: HashMap<PrimitiveID, SunBuffer>,
-    pub index_buffers: HashMap<PrimitiveID, SunBuffer>,
-
     pub active_camera_buffer: Option<SunBuffer>,
     pub active_camera_bindgroup: Option<wgpu::BindGroup>,
 
     // This needs to go in model
     pub resource_ids: HashMap<String, ResourceID>,
+
+    pub model: Option<SunModel>,
 
     commands: Vec<Command>,
 
@@ -147,30 +148,7 @@ impl Sun {
         }
     }
 
-    pub async fn generate_buffers(&mut self, buf_desc: &BufferDesc) {
-        for primitive in &buf_desc.data {
-            if !primitive.initialized {
-                let vb = SunBuffer::new_with_data(
-                    format!("Vertex Buffer: {}", primitive.uuid).as_str(),
-                    BufferUsages::VERTEX,
-                    bytemuck::cast_slice(primitive.vertices.as_slice()),
-                    self.device.as_ref().unwrap(),
-                );
-
-                if !primitive.indices.is_empty() {
-                    let ib = SunBuffer::new_with_data(
-                        format!("Index Buffer: {}", primitive.uuid).as_str(),
-                        BufferUsages::INDEX,
-                        bytemuck::cast_slice(primitive.indices.as_slice()),
-                        self.device.as_ref().unwrap(),
-                    );
-                    self.index_buffers.insert(primitive.uuid, ib);
-                }
-
-                self.vertex_buffers.insert(primitive.uuid, vb);
-            }
-        }
-
+    pub async fn regenerate_buffers(&mut self) {
         if self.active_camera_buffer.is_none() {
             let dummy_cam = CameraComponent::default();
             let dummy_cam_uniform = CameraUniform::from_camera(&dummy_cam);
@@ -209,27 +187,12 @@ impl Sun {
         }
     }
 
-    pub fn destroy_buffer(&mut self, id: PrimitiveID) {
-        if self.vertex_buffers.contains_key(&id) {
-            self.vertex_buffers
-                .remove(&id)
-                .unwrap()
-                .get_buffer()
-                .destroy();
-        }
-        if self.index_buffers.contains_key(&id) {
-            self.index_buffers
-                .remove(&id)
-                .unwrap()
-                .get_buffer()
-                .destroy();
-        }
-    }
-
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
         if !self.default_textures_loaded {
             return;
         }
+
+        self.regenerate_buffers().await;
 
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
             let frame = vp.get_current_texture();
@@ -260,58 +223,28 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
-                for primitive in &render_desc.primitives {
-                    if let Some(pipe) = basic_pipeline {
-                        rpass.set_pipeline(&pipe.pipeline);
+                if let Some(pipe) = basic_pipeline {
+                    rpass.set_pipeline(&pipe.pipeline);
 
-                        // Camera Uniform Bind Group and Buffer Update
-                        if let Some(camera_bg) = &self.active_camera_bindgroup {
-                            let camera_uniform =
-                                CameraUniform::from_camera(&render_desc.active_camera);
-                            self.queue.as_ref().unwrap().write_buffer(
-                                self.active_camera_buffer.as_ref().unwrap().get_buffer(),
-                                0,
-                                bytemuck::cast_slice(&[camera_uniform]),
-                            );
+                    // Camera Uniform Bind Group and Buffer Update
+                    if let Some(camera_bg) = &self.active_camera_bindgroup {
+                        let camera_uniform = CameraUniform::from_camera(&render_desc.active_camera);
+                        self.queue.as_ref().unwrap().write_buffer(
+                            self.active_camera_buffer.as_ref().unwrap().get_buffer(),
+                            0,
+                            bytemuck::cast_slice(&[camera_uniform]),
+                        );
 
-                            rpass.set_bind_group(0, camera_bg, &[]);
-                        }
+                        rpass.set_bind_group(0, camera_bg, &[]);
+                    }
 
-                        // Diffuse Texture Bind Group
-                        if let Some(tex_name) = &primitive.temp_diffuse {
-                            if let Some(tex_id) = self.resource_ids.get(tex_name) {
-                                let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
+                    let tex_id = self.resource_ids.get("missing.jpg").unwrap();
+                    let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
 
-                                rpass.set_bind_group(*index, bind_group, &[]);
-                            } else {
-                                error!("Texture wtih name: \"{}\" not initialized! It should be loaded into memory first.", tex_name);
+                    rpass.set_bind_group(*index, bind_group, &[]);
 
-                                let tex_id = self.resource_ids.get("missing.jpg").unwrap();
-                                let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
-
-                                rpass.set_bind_group(*index, bind_group, &[]);
-                            }
-                        } else {
-                            let tex_id = self.resource_ids.get("missing.jpg").unwrap();
-                            let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
-
-                            rpass.set_bind_group(*index, bind_group, &[]);
-                        }
-
-                        // Vertex Buffer binding
-                        if let Some(vb) = self.vertex_buffers.get(&primitive.uuid) {
-                            rpass.set_vertex_buffer(0, vb.get_buffer().slice(..));
-                        }
-
-                        // Index Buffer binding
-                        if let Some(ib) = self.index_buffers.get(&primitive.uuid) {
-                            rpass.set_index_buffer(
-                                ib.get_buffer().slice(..),
-                                wgpu::IndexFormat::Uint16,
-                            )
-                        }
-
-                        rpass.draw_indexed(0..primitive.indices.len() as u32, 0, 0..1);
+                    if let Some(model) = self.model.as_ref() {
+                        rpass.draw_mesh_instanced(&model.meshes[0], 0..1);
                     }
                 }
             }
@@ -341,13 +274,13 @@ impl Default for Sun {
             viewports: HashMap::new(),
             pipelines: HashMap::new(),
             shaders: HashMap::new(),
-            vertex_buffers: HashMap::new(),
-            index_buffers: HashMap::new(),
 
             active_camera_buffer: None,
             active_camera_bindgroup: None,
 
             resource_ids: HashMap::new(),
+
+            model: None,
 
             commands: vec![],
 
@@ -401,17 +334,18 @@ impl App for Sun {
                 .await;
             }
 
-            CommandEvent::Asset(asset) => {
-                if asset.asset_type == AssetType::Shader {
+            CommandEvent::Asset(asset) => match asset.asset_type {
+                AssetType::Shader => {
                     self.shaders.insert(asset.name.clone(), asset.clone());
-                } else if asset.asset_type == AssetType::Texture {
+                }
+                AssetType::Texture => {
                     let asset = asset.clone();
 
                     if asset.status != AssetStatus::Ready {
                         return;
                     }
 
-                    let texture = GPUTexture::from_bytes(
+                    let texture = SunTexture::from_bytes(
                         self.device.as_ref().unwrap(),
                         self.queue.as_ref().unwrap(),
                         asset.data.as_slice(),
@@ -445,10 +379,34 @@ impl App for Sun {
                         self.default_textures_loaded = true;
                     }
                 }
-            }
+                AssetType::Model => {
+                    let diffuse_texture_bg_layout = &self
+                        .pipelines
+                        .get("basic_shader.wgsl")
+                        .unwrap()
+                        .bind_group_layouts[1];
 
-            CommandEvent::RequestCreateBuffer(desc) => self.generate_buffers(desc).await,
-            CommandEvent::RequestDestroyBuffer(id) => self.destroy_buffer(id.clone()),
+                    let model = SunModel::from_glb(
+                        asset,
+                        &diffuse_texture_bg_layout,
+                        self.queue.as_ref().unwrap(),
+                        self.device.as_ref().unwrap(),
+                    );
+
+                    match model {
+                        Ok(model) => {
+                            self.model = Some(model);
+                        }
+                        Err(err) => {
+                            error!(
+                                "Failed to create model from Glb: {} with error: {}",
+                                asset.path, err
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
