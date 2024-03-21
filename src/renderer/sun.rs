@@ -235,16 +235,9 @@ impl Sun {
                             bytemuck::cast_slice(&[camera_uniform]),
                         );
 
-                        rpass.set_bind_group(0, camera_bg, &[]);
-                    }
-
-                    let tex_id = self.resource_ids.get("missing.jpg").unwrap();
-                    let (index, bind_group) = pipe.bind_groups.get(tex_id).unwrap();
-
-                    rpass.set_bind_group(*index, bind_group, &[]);
-
-                    if let Some(model) = self.model.as_ref() {
-                        rpass.draw_mesh_instanced(&model.meshes[0], 0..1);
+                        if let Some(model) = self.model.as_ref() {
+                            rpass.draw_model(&model, camera_bg);
+                        }
                     }
                 }
             }

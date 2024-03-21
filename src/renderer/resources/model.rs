@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     io::{BufReader, Cursor},
     ops::Range,
 };
@@ -14,7 +15,7 @@ use gltf::{json::root::*, Document};
 pub struct SunModel {
     pub id: uuid::Uuid,
     pub meshes: Vec<SunMesh>,
-    pub materials: Vec<SunMaterial>,
+    pub materials: HashMap<uuid::Uuid, SunMaterial>,
 }
 
 impl SunModel {
@@ -38,7 +39,8 @@ impl SunModel {
         let doc = Document::from_json_without_validation(root);
 
         let mut meshes: Vec<SunMesh> = Vec::new();
-        let mut materials: Vec<SunMaterial> = Vec::with_capacity(doc.materials().len());
+        let mut materials: HashMap<uuid::Uuid, SunMaterial> =
+            HashMap::with_capacity(doc.materials().len());
 
         for scene in doc.scenes() {
             meshes.reserve(scene.nodes().len());
@@ -60,14 +62,14 @@ impl SunModel {
                         .count();
 
                     // Initialize array for the various components of the mesh
-                    // with the vertices count to prevent reallocation for resizing
+                    // with the vertices count to prevent reallocation on resizing
                     let mut positions: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
                     let mut normals: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
                     let mut tex_coords: Vec<[f32; 2]> = Vec::with_capacity(num_vertices);
                     let mut indices_u32: Vec<u32> = Vec::with_capacity(num_vertices);
                     let mut indices_u16: Vec<u16> = Vec::with_capacity(num_vertices);
 
-                    // Vrtex array creation
+                    // Vertex array creation
                     for primitive in mesh.primitives() {
                         for (semantic, accessor) in primitive.attributes() {
                             let Some(buffer_view) = accessor.view() else {
@@ -210,12 +212,15 @@ impl SunModel {
                                         ],
                                     });
 
-                                materials.push(SunMaterial {
-                                    name: material_name.to_owned(),
-                                    id: material_id,
-                                    diffuse_texture,
-                                    bind_group,
-                                })
+                                materials.insert(
+                                    material_id,
+                                    SunMaterial {
+                                        name: material_name.to_owned(),
+                                        id: material_id,
+                                        diffuse_texture,
+                                        bind_group,
+                                    },
+                                );
                             }
                             Source::Uri {
                                 uri: _,
@@ -313,18 +318,47 @@ impl std::error::Error for ModelCreationError {
 }
 
 pub trait DrawModel<'a> {
-    fn draw_mesh(&mut self, mesh: &'a SunMesh);
-    fn draw_mesh_instanced(&mut self, mesh: &'a SunMesh, instances: Range<u32>);
+    fn draw_mesh(
+        &mut self,
+        mesh: &'a SunMesh,
+        material: &'a SunMaterial,
+        camera_bind_group: &'a wgpu::BindGroup,
+    );
+    fn draw_mesh_instanced(
+        &mut self,
+        mesh: &'a SunMesh,
+        material: &'a SunMaterial,
+        instances: Range<u32>,
+        camera_bind_group: &'a wgpu::BindGroup,
+    );
+    fn draw_model(&mut self, model: &'a SunModel, camera_bind_group: &'a wgpu::BindGroup);
+    fn draw_model_instanced(
+        &mut self,
+        model: &'a SunModel,
+        instances: Range<u32>,
+        camera_bind_group: &'a wgpu::BindGroup,
+    );
 }
 
 impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
 {
-    fn draw_mesh(&mut self, mesh: &'b SunMesh) {
-        self.draw_mesh_instanced(mesh, 0..1);
+    fn draw_mesh(
+        &mut self,
+        mesh: &'b SunMesh,
+        material: &'a SunMaterial,
+        camera_bind_group: &'a wgpu::BindGroup,
+    ) {
+        self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group);
     }
-    fn draw_mesh_instanced(&mut self, mesh: &'b SunMesh, instances: Range<u32>) {
+    fn draw_mesh_instanced(
+        &mut self,
+        mesh: &'a SunMesh,
+        material: &'a SunMaterial,
+        instances: Range<u32>,
+        camera_bind_group: &'a wgpu::BindGroup,
+    ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.get_buffer().slice(..));
         self.set_index_buffer(
             mesh.index_buffer.get_buffer().slice(..),
@@ -334,6 +368,24 @@ where
                 wgpu::IndexFormat::Uint32
             },
         );
+        self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, &material.bind_group, &[]);
         self.draw_indexed(0..mesh.index_count, 0, instances);
+    }
+
+    fn draw_model(&mut self, model: &'b SunModel, camera_bind_group: &'b wgpu::BindGroup) {
+        self.draw_model_instanced(model, 0..1, camera_bind_group);
+    }
+
+    fn draw_model_instanced(
+        &mut self,
+        model: &'b SunModel,
+        instances: Range<u32>,
+        camera_bind_group: &'b wgpu::BindGroup,
+    ) {
+        for mesh in &model.meshes {
+            let material = model.materials.get(&mesh.material).unwrap();
+            self.draw_mesh_instanced(mesh, material, instances.clone(), camera_bind_group);
+        }
     }
 }
