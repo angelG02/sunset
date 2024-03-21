@@ -9,7 +9,7 @@ use crate::{
     prelude::{
         camera_component::{CameraComponent, CameraUniform},
         command_queue::CommandType,
-        state, Asset, AssetStatus, AssetType,
+        state, Asset, AssetType,
     },
 };
 
@@ -27,10 +27,7 @@ use super::{
     buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
     primitive::Primitive,
-    resources::{
-        model::{DrawModel, SunModel},
-        texture::SunTexture,
-    },
+    resources::model::{DrawModel, SunModel},
 };
 
 pub struct Sun {
@@ -46,15 +43,11 @@ pub struct Sun {
     pub active_camera_buffer: Option<SunBuffer>,
     pub active_camera_bindgroup: Option<wgpu::BindGroup>,
 
-    // This needs to go in model
-    pub resource_ids: HashMap<String, ResourceID>,
-
     pub model: Option<SunModel>,
 
     commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
-    pub default_textures_loaded: bool,
 }
 
 impl Sun {
@@ -98,10 +91,10 @@ impl Sun {
         let vp_desc = ViewportDesc::new(
             Arc::clone(&window),
             wgpu::Color {
-                r: 105.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.0,
+                r: 224.0,
+                g: 188.0,
+                b: 223.0,
+                a: 255.0,
             },
             self.instance.as_ref().unwrap(),
         );
@@ -188,7 +181,7 @@ impl Sun {
     }
 
     pub async fn redraw(&mut self, render_desc: RenderDesc) {
-        if !self.default_textures_loaded {
+        if !state::initialized() {
             return;
         }
 
@@ -271,14 +264,11 @@ impl Default for Sun {
             active_camera_buffer: None,
             active_camera_bindgroup: None,
 
-            resource_ids: HashMap::new(),
-
             model: None,
 
             commands: vec![],
 
             proxy: None,
-            default_textures_loaded: false,
         }
     }
 }
@@ -330,47 +320,6 @@ impl App for Sun {
             CommandEvent::Asset(asset) => match asset.asset_type {
                 AssetType::Shader => {
                     self.shaders.insert(asset.name.clone(), asset.clone());
-                }
-                AssetType::Texture => {
-                    let asset = asset.clone();
-
-                    if asset.status != AssetStatus::Ready {
-                        return;
-                    }
-
-                    let texture = SunTexture::from_bytes(
-                        self.device.as_ref().unwrap(),
-                        self.queue.as_ref().unwrap(),
-                        asset.data.as_slice(),
-                        asset.name.as_str(),
-                    )
-                    .unwrap();
-
-                    self.resource_ids.insert(texture.name.clone(), texture.uuid);
-
-                    self.pipelines
-                        .get_mut("basic_shader.wgsl")
-                        .unwrap()
-                        .add_bind_group(
-                            self.device.as_ref().unwrap(),
-                            texture.uuid,
-                            "diffuse",
-                            1,
-                            &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(&texture.view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                                },
-                            ],
-                        );
-
-                    if asset.name.contains("missing") {
-                        self.default_textures_loaded = true;
-                    }
                 }
                 AssetType::Model => {
                     let diffuse_texture_bg_layout = &self
