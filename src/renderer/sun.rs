@@ -94,7 +94,7 @@ impl Sun {
                 r: 224.0,
                 g: 188.0,
                 b: 223.0,
-                a: 255.0,
+                a: 0.0,
             },
             self.instance.as_ref().unwrap(),
         );
@@ -188,7 +188,10 @@ impl Sun {
         self.regenerate_buffers().await;
 
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
-            let frame = vp.get_current_texture();
+            let Ok(frame) = vp.get_current_texture() else {
+                return;
+            };
+
             let view = frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
@@ -228,6 +231,7 @@ impl Sun {
                             bytemuck::cast_slice(&[camera_uniform]),
                         );
 
+                        // Draw model through the active camera
                         if let Some(model) = self.model.as_ref() {
                             rpass.draw_model(&model, camera_bg);
                         }
@@ -544,11 +548,10 @@ impl Viewport {
             self.desc.surface.configure(device, &self.config);
         }
     }
-    fn get_current_texture(&mut self) -> wgpu::SurfaceTexture {
-        self.desc
-            .surface
-            .get_current_texture()
-            .expect("Failed to acquire next swap chain texture")
+    fn get_current_texture(&mut self) -> anyhow::Result<wgpu::SurfaceTexture> {
+        let surface_tex = self.desc.surface.get_current_texture()?;
+
+        Ok(surface_tex)
     }
 
     pub fn get_surface(&self) -> &wgpu::Surface {
