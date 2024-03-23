@@ -24,17 +24,17 @@ static mut RUNNING: AtomicBool = AtomicBool::new(true);
 pub static mut ENGINE_INIT: AtomicBool = AtomicBool::new(false);
 
 pub fn initialized() -> bool {
-    unsafe { ENGINE_INIT.load(std::sync::atomic::Ordering::SeqCst) }
+    unsafe { ENGINE_INIT.load(std::sync::atomic::Ordering::Acquire) }
 }
 
 pub fn finish_init() {
     unsafe {
-        ENGINE_INIT.store(true, std::sync::atomic::Ordering::SeqCst);
+        ENGINE_INIT.store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
 pub fn is_running() -> bool {
-    unsafe { RUNNING.load(std::sync::atomic::Ordering::SeqCst) }
+    unsafe { RUNNING.load(std::sync::atomic::Ordering::Relaxed) }
 }
 
 pub fn terminate() {
