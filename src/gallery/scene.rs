@@ -19,6 +19,7 @@ use crate::{
         model_component::ModelComponent,
         name_component::NameComponent,
     },
+    prelude::camera_component::CamType,
     renderer::{primitive::Primitive, sun::RenderDesc},
 };
 
@@ -281,6 +282,19 @@ impl App for Scene {
                     .unwrap()
                     .send_event(CommandEvent::Render(render_desc))
                     .unwrap();
+            }
+
+            // TODO (@A40): Move this functionality into a system that reads window events and mutates the cam components
+            winit::event::WindowEvent::Resized(new_size) => {
+                let cams = self.query_world::<With<ActiveCameraComponent>>();
+
+                for cam in cams {
+                    if let Some(mut cam_component) = self.world.get_mut::<CameraComponent>(cam) {
+                        if let CamType::Perspective(props) = &mut cam_component.camera_type {
+                            props.aspect = new_size.width as f32 / new_size.height as f32;
+                        }
+                    }
+                }
             }
             // winit::event::Event::WindowEvent {
             //     window_id: _,
