@@ -81,18 +81,18 @@ impl State {
             }
         }
 
-        State::update().await;
+        State::update(0.0).await;
 
         event_loop
     }
 
-    async fn update() {
+    async fn update(delta_time: f32) {
         let mut frame_commands: Vec<Option<Command>> = vec![];
         {
             let apps = &mut State::write().await.apps;
 
             for app in apps.values_mut() {
-                let cmds = app.update();
+                let cmds = app.update(delta_time);
 
                 for cmd in cmds {
                     frame_commands.push(Some(cmd));
@@ -139,19 +139,33 @@ impl State {
     pub async fn process_window_events(
         event: winit::event::WindowEvent,
         id: winit::window::WindowId,
+        delta_time: f32,
     ) {
         let apps = &mut State::write().await.apps;
 
         for app in apps.values_mut() {
-            app.process_window_event(&event, id).await;
+            app.process_window_event(&event, id, delta_time).await;
         }
     }
 
-    pub async fn process_user_events(event: CommandEvent) {
+    pub async fn process_user_events(event: CommandEvent, delta_time: f32) {
         let apps = &mut State::write().await.apps;
 
         for app in apps.values_mut() {
-            app.process_user_event(&event).await;
+            app.process_user_event(&event, delta_time).await;
+        }
+    }
+
+    pub async fn process_device_events(
+        event: winit::event::DeviceEvent,
+        device_id: winit::event::DeviceId,
+        delta_time: f32,
+    ) {
+        let apps = &mut State::write().await.apps;
+
+        for app in apps.values_mut() {
+            app.process_device_event(&event, device_id, delta_time)
+                .await;
         }
     }
 
@@ -230,7 +244,7 @@ pub async fn run() {
             // Calculate frame time (delta time)
             let new_time = web_time::Instant::now();
             let frame_time = (new_time - current_time).as_nanos();
-            let _delta_time = frame_time as f32 * 0.000000001;
+            let delta_time = frame_time as f32 * 0.000000001;
             current_time = new_time;
 
             //info!("{_delta_time}s");
@@ -241,10 +255,10 @@ pub async fn run() {
                 winit::event::Event::UserEvent(event) => {
                     cfg_if::cfg_if! {
                         if #[cfg(not(target_arch = "wasm32"))] {
-                            runtime.block_on(State::process_user_events(event.clone()));
+                            runtime.block_on(State::process_user_events(event.clone(), delta_time));
                         }
                         else {
-                            wasm_bindgen_futures::spawn_local(State::process_user_events(event.clone()));
+                            wasm_bindgen_futures::spawn_local(State::process_user_events(event.clone(), delta_time));
                         }
                     }
                     match event {
@@ -273,21 +287,31 @@ pub async fn run() {
                 winit::event::Event::WindowEvent { window_id, event } => {
                     cfg_if::cfg_if! {
                         if #[cfg(not(target_arch = "wasm32"))] {
-                            runtime.block_on(State::process_window_events(event.clone(), window_id));
+                            runtime.block_on(State::process_window_events(event.clone(), window_id, delta_time));
                         }
                         else {
-                            wasm_bindgen_futures::spawn_local(State::process_window_events(event.clone(), window_id));
+                            wasm_bindgen_futures::spawn_local(State::process_window_events(event.clone(), window_id, delta_time));
                         }
-            }
+                    }
+                }
+                winit::event::Event::DeviceEvent { device_id, event } => {
+                    cfg_if::cfg_if! {
+                        if #[cfg(not(target_arch = "wasm32"))] {
+                            runtime.block_on(State::process_device_events(event.clone(), device_id, delta_time));
+                        }
+                        else {
+                            wasm_bindgen_futures::spawn_local(State::process_device_events(event.clone(), device_id, delta_time));
+                        }
+                    }
                 }
                 _ => {}
             }
             cfg_if::cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
-                    runtime.block_on(State::update());
+                    runtime.block_on(State::update(delta_time));
                 }
                 else {
-                    wasm_bindgen_futures::spawn_local(State::update());
+                    wasm_bindgen_futures::spawn_local(State::update(delta_time));
                 }
             }
         })

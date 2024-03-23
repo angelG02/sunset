@@ -83,7 +83,11 @@ impl App for AssetServer {
         self.process_asset_command(cmd)
     }
 
-    async fn process_user_event(&mut self, event: &crate::core::events::CommandEvent) {
+    async fn process_user_event(
+        &mut self,
+        event: &crate::core::events::CommandEvent,
+        _delta_time: f32,
+    ) {
         match event {
             CommandEvent::Asset(asset) => {
                 if asset.status == AssetStatus::NotFound {
@@ -117,7 +121,7 @@ impl App for AssetServer {
         }
     }
 
-    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         self.commands.drain(..).collect()
     }
 

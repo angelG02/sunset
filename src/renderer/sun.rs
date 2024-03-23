@@ -294,7 +294,11 @@ impl App for Sun {
 
     async fn process_command(&mut self, _cmd: Command) {}
 
-    async fn process_user_event(&mut self, event: &crate::core::events::CommandEvent) {
+    async fn process_user_event(
+        &mut self,
+        event: &crate::core::events::CommandEvent,
+        _delta_time: f32,
+    ) {
         match event {
             CommandEvent::OnWindowCreated(window) => {
                 self.create_viewport(Arc::clone(window)).await;
@@ -361,6 +365,7 @@ impl App for Sun {
         &mut self,
         event: &winit::event::WindowEvent,
         window_id: winit::window::WindowId,
+        _delta_time: f32,
     ) {
         match event {
             WindowEvent::Resized(new_size) => {
@@ -473,7 +478,7 @@ impl App for Sun {
         }
     }
 
-    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         self.commands.drain(..).collect()
     }
 

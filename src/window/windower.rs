@@ -153,7 +153,7 @@ impl App for Windower {
         self.commands.push(cmd);
     }
 
-    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         for (_window_id, window) in &self.windows {
             if window.has_focus() {
                 window.request_redraw();
@@ -215,6 +215,7 @@ impl App for Windower {
         &mut self,
         event: &winit::event::WindowEvent,
         window_id: winit::window::WindowId,
+        _delta_time: f32,
     ) {
         if let winit::event::WindowEvent::CloseRequested = event {
             self.windows.remove(&window_id);
@@ -222,7 +223,7 @@ impl App for Windower {
         }
     }
 
-    async fn process_user_event(&mut self, event: &CommandEvent) {
+    async fn process_user_event(&mut self, event: &CommandEvent, _delta_time: f32) {
         if let CommandEvent::OnWindowClosed((id, _)) = event {
             self.windows.remove(id);
             self.window_names.remove(id);

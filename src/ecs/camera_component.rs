@@ -244,16 +244,16 @@ impl Default for CameraComponent {
     fn default() -> Self {
         Self {
             camera_type: CamType::Orthogonal(OrthogonalProps {
-                left: 0.0,
-                right: 0.0,
-                bottom: 0.0,
-                top: 0.0,
+                left: -1.0,
+                right: 1.0,
+                bottom: -1.0,
+                top: 1.0,
             }),
             eye: cgmath::Point3::new(0.0, 0.0, 0.0),
             forward: cgmath::Vector3::new(0.0, 0.0, -1.0),
             up: cgmath::Vector3::new(0.0, 1.0, 0.0),
-            znear: 0.0,
-            zfar: 0.0,
+            znear: 0.1,
+            zfar: 100.0,
         }
     }
 }

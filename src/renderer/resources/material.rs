@@ -11,7 +11,7 @@ pub struct SunMaterial {
 }
 
 impl SunMaterial {
-    pub fn from_bytes(
+    pub fn from_diffuse_bytes(
         data: &[u8],
         name: &str,
         id: Option<uuid::Uuid>,

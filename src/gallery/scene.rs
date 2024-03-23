@@ -3,8 +3,11 @@ use bevy_ecs::{
     entity::Entity,
     query::{QueryFilter, With},
 };
-use tracing::{error, warn};
-use winit::event_loop::EventLoopProxy;
+use tracing::{error, info, warn};
+use winit::{
+    event::{ElementState, MouseScrollDelta},
+    event_loop::EventLoopProxy,
+};
 
 use crate::{
     core::{
@@ -29,11 +32,18 @@ pub struct Scene {
     pub commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+
+    // Temp cam controls
+    cam_speed: f32,
+    cam_should_move: bool,
+    mouse_delta_y: f32,
 }
 
 impl Scene {
     pub fn new() -> Self {
-        Scene::default()
+        let mut scene = Scene::default();
+        scene.cam_speed = 1.0;
+        scene
     }
 
     pub async fn process_scene_commands(&mut self, mut cmd: Command) {
@@ -236,7 +246,7 @@ impl App for Scene {
         self.process_scene_commands(cmd).await;
     }
 
-    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command> {
+    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         if initialized() {
             self.commands.drain(..).collect()
         } else {
@@ -248,8 +258,8 @@ impl App for Scene {
         &mut self,
         event: &winit::event::WindowEvent,
         window_id: winit::window::WindowId,
+        _delta_time: f32,
     ) {
-        #[allow(clippy::single_match)]
         match event {
             winit::event::WindowEvent::RedrawRequested => {
                 let mut primitives_from_scene = self.world.query::<&Primitive>();
@@ -269,6 +279,7 @@ impl App for Scene {
                         .unwrap()
                         .clone()
                 } else {
+                    warn!("No camera entity found! Scene will be rendered with a default camera");
                     CameraComponent::default()
                 };
 
@@ -296,23 +307,58 @@ impl App for Scene {
                     }
                 }
             }
-            // winit::event::Event::WindowEvent {
-            //     window_id: _,
-            //     event:
-            //         winit::event::WindowEvent::KeyboardInput {
-            //             device_id: _,
-            //             event,
-            //             is_synthetic: _,
-            //         },
-            // } => {
-            //     if event.physical_key
-            //         == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F1)
-            //         && event.state == winit::event::ElementState::Released
-            //     {
-
-            //     }
-            // }
             _ => {}
+        }
+    }
+
+    async fn process_device_event(
+        &mut self,
+        event: &winit::event::DeviceEvent,
+        _device_id: winit::event::DeviceId,
+        delta_time: f32,
+    ) {
+        match event {
+            winit::event::DeviceEvent::Button { button, state } => {
+                if *button == 0 {
+                    if *state == ElementState::Pressed {
+                        self.cam_should_move = true;
+                    } else {
+                        self.cam_should_move = false;
+                    }
+                }
+            }
+            winit::event::DeviceEvent::MouseMotion { delta } => {
+                self.mouse_delta_y = delta.1 as f32;
+            }
+            winit::event::DeviceEvent::MouseWheel { delta } => {
+                match delta {
+                    MouseScrollDelta::LineDelta(_x, y) => {
+                        self.cam_speed += y;
+                        if self.cam_speed < 0.0 {
+                            self.cam_speed = 0.0;
+                        }
+                    }
+                    MouseScrollDelta::PixelDelta(delta) => {
+                        self.cam_speed += delta.y as f32;
+                        if self.cam_speed < 0.0 {
+                            self.cam_speed = 0.0;
+                        }
+                    }
+                }
+                info!("Cam speed set to: {}", self.cam_speed);
+            }
+            _ => {}
+        }
+
+        // TODO (@A40): Should be done in update or in a system
+        if self.cam_should_move {
+            let cams = self.query_world::<With<ActiveCameraComponent>>();
+
+            for cam in cams {
+                if let Some(mut cam_component) = self.world.get_mut::<CameraComponent>(cam) {
+                    cam_component.eye.z += self.mouse_delta_y * delta_time * self.cam_speed;
+                }
+            }
         }
     }
 

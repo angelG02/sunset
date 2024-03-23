@@ -4,7 +4,7 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
     let windower = windower::Windower::default();
 
     let sun = renderer::sun::Sun::default();
-    let scene = scene::Scene::default();
+    let scene = scene::Scene::new();
 
     // Asset server for http requests
     #[cfg(not(target_arch = "wasm32"))]

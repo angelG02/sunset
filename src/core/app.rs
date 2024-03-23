@@ -19,21 +19,13 @@ pub trait App {
     ///
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>);
 
-    fn on_frame_start(&mut self) -> Vec<Command> {
-        vec![]
-    }
-
-    fn on_frame_end(&mut self) -> Vec<Command> {
-        vec![]
-    }
-
     /// Queues commands to be processed by the application duricng the current frame.
     ///
     /// # Returns
     ///
     /// A vector of `Command` objects representing the commands to be queued from the app.
     ///
-    fn update(&mut self /*schedule: Schedule, */) -> Vec<Command>;
+    fn update(&mut self, delta_time: f32) -> Vec<Command>;
 
     /// Processes a single command.
     ///
@@ -47,10 +39,19 @@ pub trait App {
         &mut self,
         _event: &winit::event::WindowEvent,
         _window_id: winit::window::WindowId,
+        _delta_time: f32,
     ) {
     }
 
-    async fn process_user_event(&mut self, _event: &CommandEvent) {}
+    async fn process_user_event(&mut self, _event: &CommandEvent, _delta_time: f32) {}
+
+    async fn process_device_event(
+        &mut self,
+        _event: &winit::event::DeviceEvent,
+        _device_id: winit::event::DeviceId,
+        _delta_time: f32,
+    ) {
+    }
 
     fn unsupported(args: &str) -> Option<Task<Vec<CommandEvent>>>
     where

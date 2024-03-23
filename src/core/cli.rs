@@ -54,7 +54,7 @@ impl App for CLI {
         self.proxy = Some(elp);
     }
 
-    fn update(&mut self) -> Vec<Command> {
+    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         self.commands.drain(0..self.commands.len()).collect()
     }
 

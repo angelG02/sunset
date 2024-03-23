@@ -15,7 +15,7 @@ pub struct NewWindowProps {
     // Option<Decorations...icon...etc, etc>
 }
 
-#[derive(Clone)]
+#[derive(Clone, bevy_ecs::event::Event)]
 pub enum CommandEvent {
     RequestNewWindow(NewWindowProps),
     OnWindowClosed((winit::window::WindowId, String)),
