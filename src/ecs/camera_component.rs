@@ -121,22 +121,73 @@ impl CameraComponent {
                 })
             }
             "3D" => {
-                if args.len() < 1000 {
+                if args.len() < 7 {
                     error!(
-                        "Expected at least 1000 arguments. Add 'help' to argument list to see usage."
+                        "Expected at least 7 arguments. Add 'help' to argument list to see usage."
                     );
                     return None;
                 }
 
                 if args.contains(&"help") {
                     info!(
-                        "\n<orthogonal camera props> (left: f32, right: f32, bottom: f32, top: f32)
+                        "\n<perspective camera props> (aspcet ratio: f32, fovy: f32)
                         \n<camera pos> (x: f32, y: f32, z: f32)
                         \n<znear and zfar> (f32, f32) <- false info"
                     );
                 }
 
-                None
+                let aspect: f32 = args[1].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'aspect ratio': {}", args[0]);
+                    0.0
+                });
+                let fovy: f32 = args[2].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'fovy': {}", args[1]);
+                    0.0
+                });
+
+                let x: f32 = args[3].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'camera_pos:x': {}", args[2]);
+                    0.0
+                });
+                let y: f32 = args[4].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'camera_pos:y': {}", args[3]);
+                    0.0
+                });
+                let z: f32 = args[5].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'camera_pos:z': {}", args[4]);
+                    0.0
+                });
+
+                let camera_pos: cgmath::Point3<f32> = cgmath::Point3 { x, y, z };
+                let znear: f32 = args[6].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'znear': {}", args[5]);
+                    0.0
+                });
+                let zfar: f32 = args[7].parse().unwrap_or_else(|_| {
+                    error!("Could not parse value for 'zfar': {}", args[6]);
+                    0.0
+                });
+
+                let props = PerspectiveProps { aspect, fovy };
+
+                //info!("{:?}", props);
+
+                Some(CameraComponent {
+                    camera_type: CamType::Perspective(props),
+                    eye: camera_pos,
+                    up: cgmath::Vector3 {
+                        x: 0.0,
+                        y: 1.0,
+                        z: 0.0,
+                    },
+                    forward: cgmath::Vector3 {
+                        x: 0.0,
+                        y: 0.0,
+                        z: -1.0,
+                    },
+                    znear,
+                    zfar,
+                })
             }
             _ => {
                 error!("Expected first argument to be one of <2D, 3D>");
