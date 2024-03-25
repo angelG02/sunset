@@ -6,6 +6,7 @@ use once_cell::sync::Lazy;
 use tracing::{error, info, warn};
 use winit::event_loop::EventLoopProxy;
 
+use crate::prelude::windower::NewWindowProps;
 #[allow(unused_imports)]
 use crate::{
     assets::{asset_cmd::AssetCommand, asset_server::AssetServer},
@@ -14,7 +15,7 @@ use crate::{
         cli::run_cli,
         command_queue::{Command, CommandQueue, CommandType},
         default_apps::default_apps,
-        events::{CommandEvent, NewWindowProps},
+        events::CommandEvent,
     },
     window::windower::Windower,
 };

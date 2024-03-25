@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use bevy_ecs::{
+    bundle::Bundle,
     entity::Entity,
     query::{QueryFilter, With},
 };
+use cgmath::Rotation3;
 use tracing::{error, info, warn};
 use winit::{
     event::{ElementState, MouseScrollDelta},
@@ -22,8 +24,11 @@ use crate::{
         model_component::ModelComponent,
         name_component::NameComponent,
     },
-    prelude::camera_component::CamType,
-    renderer::{primitive::Primitive, sun::RenderDesc},
+    prelude::{
+        camera_component::CamType, resources::model::RenderModelDesc,
+        transform_component::TransformComponent,
+    },
+    renderer::primitive::Primitive,
 };
 
 #[derive(Default)]
@@ -51,7 +56,7 @@ impl Scene {
         let vec_args: Vec<&str> = args.split(' ').collect();
 
         let task = match vec_args[0].to_ascii_lowercase().trim() {
-            "add" => self.add_entity(vec_args[1..].join(" ").as_str()).await,
+            "add" => self.add_entity_from_args(vec_args[1..].join(" ").as_str()),
             "remove" => self.remove_entity(vec_args[1..].join(" ").as_str()),
             "set_texture" => {
                 if vec_args[1..].len() >= 2 {
@@ -71,7 +76,7 @@ impl Scene {
         self.commands.push(cmd);
     }
 
-    pub async fn add_entity(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
+    pub fn add_entity_from_args(&mut self, args: &str) -> Option<Task<Vec<CommandEvent>>> {
         let components = util::extract_arguments(args);
 
         let mut events = Vec::new();
@@ -86,8 +91,13 @@ impl Scene {
                 }
                 "model" => {
                     let model = ModelComponent::from_args(args.clone());
+                    let mut transform = TransformComponent::zero();
+                    transform.rotation =
+                        cgmath::Quaternion::<f32>::from_angle_y(Into::<cgmath::Rad<f32>>::into(
+                            cgmath::Deg(180.0),
+                        ));
                     events.push(CommandEvent::RequestCreateModel(model.clone()));
-                    entity.insert(model);
+                    entity.insert((model, transform));
                 }
                 "camera" => {
                     let camera = CameraComponent::from_args(args.clone());
@@ -116,6 +126,11 @@ impl Scene {
         let task = move || events.clone();
 
         Some(Box::new(task))
+    }
+
+    pub fn add_entity<T: Bundle>(&mut self, components: T) -> Entity {
+        let entity = self.world.spawn(components);
+        entity.id()
     }
 
     pub fn get_entity_with_name(&mut self, name: &str) -> Option<Entity> {
@@ -262,11 +277,12 @@ impl App for Scene {
     ) {
         match event {
             winit::event::WindowEvent::RedrawRequested => {
-                let mut primitives_from_scene = self.world.query::<&Primitive>();
-                let mut primitives_for_renderer = vec![];
+                let mut primitives_from_scene =
+                    self.world.query::<(&ModelComponent, &TransformComponent)>();
+                let mut models = vec![];
 
-                for primitive in primitives_from_scene.iter(&self.world) {
-                    primitives_for_renderer.push(primitive.clone());
+                for (model, transform) in primitives_from_scene.iter(&self.world) {
+                    models.push((model.clone(), transform.clone()));
                 }
 
                 let active_cams = self.query_world::<With<ActiveCameraComponent>>();
@@ -279,19 +295,18 @@ impl App for Scene {
                         .unwrap()
                         .clone()
                 } else {
-                    warn!("No camera entity found! Scene will be rendered with a default camera");
                     CameraComponent::default()
                 };
 
-                let render_desc = RenderDesc {
-                    primitives: primitives_for_renderer,
+                let render_desc = RenderModelDesc {
+                    models,
                     active_camera: active_cam,
                     window_id,
                 };
                 self.proxy
                     .as_ref()
                     .unwrap()
-                    .send_event(CommandEvent::Render(render_desc))
+                    .send_event(CommandEvent::RenderModel(render_desc))
                     .unwrap();
             }
 

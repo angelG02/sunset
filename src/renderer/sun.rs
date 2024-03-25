@@ -7,27 +7,21 @@ use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 use crate::{
     core::{app::App, command_queue::Command, events::CommandEvent},
     prelude::{
-        camera_component::{CameraComponent, CameraUniform},
+        camera_component::{CameraComponent, ModelUniform},
         command_queue::CommandType,
-        state, Asset, AssetType,
+        state,
+        transform_component::TransformComponent,
+        Asset, AssetType,
     },
 };
 
 pub type ResourceID = uuid::Uuid;
 pub type PrimitiveID = uuid::Uuid;
 
-#[derive(Debug, Clone)]
-pub struct RenderDesc {
-    pub primitives: Vec<Primitive>,
-    pub active_camera: CameraComponent,
-    pub window_id: winit::window::WindowId,
-}
-
 use super::{
     buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
-    primitive::Primitive,
-    resources::model::{DrawModel, SunModel},
+    resources::model::{DrawModel, RenderModelDesc, SunModel},
 };
 
 pub struct Sun {
@@ -43,7 +37,7 @@ pub struct Sun {
     pub active_camera_buffer: Option<SunBuffer>,
     pub active_camera_bindgroup: Option<wgpu::BindGroup>,
 
-    pub model: Option<SunModel>,
+    pub models: HashMap<String, SunModel>,
 
     commands: Vec<Command>,
 
@@ -144,7 +138,9 @@ impl Sun {
     pub async fn regenerate_buffers(&mut self) {
         if self.active_camera_buffer.is_none() {
             let dummy_cam = CameraComponent::default();
-            let dummy_cam_uniform = CameraUniform::from_camera(&dummy_cam);
+            let dummy_transform = TransformComponent::zero();
+            let dummy_cam_uniform =
+                ModelUniform::from_camera_and_model_transform(&dummy_cam, &dummy_transform);
 
             self.active_camera_buffer = Some(SunBuffer::new_with_data(
                 "Camera Uniform Buffer",
@@ -180,7 +176,7 @@ impl Sun {
         }
     }
 
-    pub async fn redraw(&mut self, render_desc: RenderDesc) {
+    pub async fn redraw(&mut self, render_desc: RenderModelDesc) {
         if !state::initialized() {
             return;
         }
@@ -224,16 +220,21 @@ impl Sun {
 
                     // Camera Uniform Bind Group and Buffer Update
                     if let Some(camera_bg) = &self.active_camera_bindgroup {
-                        let camera_uniform = CameraUniform::from_camera(&render_desc.active_camera);
-                        self.queue.as_ref().unwrap().write_buffer(
-                            self.active_camera_buffer.as_ref().unwrap().get_buffer(),
-                            0,
-                            bytemuck::cast_slice(&[camera_uniform]),
-                        );
-
-                        // Draw model through the active camera
-                        if let Some(model) = self.model.as_ref() {
-                            rpass.draw_model(&model, camera_bg);
+                        for (model, mut transform) in render_desc.models {
+                            transform.recalculate();
+                            let camera_uniform = ModelUniform::from_camera_and_model_transform(
+                                &render_desc.active_camera,
+                                &transform,
+                            );
+                            self.queue.as_ref().unwrap().write_buffer(
+                                self.active_camera_buffer.as_ref().unwrap().get_buffer(),
+                                0,
+                                bytemuck::cast_slice(&[camera_uniform]),
+                            );
+                            // Draw model through the active camera
+                            if let Some(model) = self.models.get(&model.model_path) {
+                                rpass.draw_model(&model, camera_bg);
+                            }
                         }
                     }
                 }
@@ -268,7 +269,7 @@ impl Default for Sun {
             active_camera_buffer: None,
             active_camera_bindgroup: None,
 
-            model: None,
+            models: HashMap::new(),
 
             commands: vec![],
 
@@ -307,7 +308,7 @@ impl App for Sun {
                 self.viewports.remove(id);
             }
 
-            CommandEvent::Render(render_desc) => {
+            CommandEvent::RenderModel(render_desc) => {
                 self.redraw(render_desc.clone()).await;
             }
 
@@ -345,7 +346,7 @@ impl App for Sun {
 
                     match model {
                         Ok(model) => {
-                            self.model = Some(model);
+                            self.models.insert(asset.path.clone(), model);
                         }
                         Err(err) => {
                             error!(

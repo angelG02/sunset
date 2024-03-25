@@ -1,6 +1,8 @@
 use bevy_ecs::component::Component;
 use tracing::{error, info};
 
+use super::transform_component::TransformComponent;
+
 #[derive(Debug, Clone)]
 pub struct PerspectiveProps {
     pub aspect: f32,
@@ -268,17 +270,20 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct CameraUniform {
-    vp: [[f32; 4]; 4],
+pub struct ModelUniform {
+    mvp: [[f32; 4]; 4],
 }
 
-unsafe impl bytemuck::Zeroable for CameraUniform {}
-unsafe impl bytemuck::Pod for CameraUniform {}
+unsafe impl bytemuck::Zeroable for ModelUniform {}
+unsafe impl bytemuck::Pod for ModelUniform {}
 
-impl CameraUniform {
-    pub fn from_camera(cam: &CameraComponent) -> Self {
+impl ModelUniform {
+    pub fn from_camera_and_model_transform(
+        cam: &CameraComponent,
+        trans: &TransformComponent,
+    ) -> Self {
         Self {
-            vp: cam.build_vp_matrix().into(),
+            mvp: (cam.build_vp_matrix() * trans.model_matrix).into(),
         }
     }
 }

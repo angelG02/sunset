@@ -7,10 +7,20 @@ use std::{
 use super::{material::SunMaterial, mesh::SunMesh};
 use crate::{
     assets::Asset,
-    prelude::{buffer::SunBuffer, primitive::Vertex, resources::texture::SunTexture},
+    prelude::{
+        buffer::SunBuffer, camera_component::CameraComponent, model_component::ModelComponent,
+        primitive::Vertex, resources::texture::SunTexture, transform_component::TransformComponent,
+    },
 };
 
 use gltf::{json::root::*, Document};
+
+#[derive(Debug, Clone)]
+pub struct RenderModelDesc {
+    pub models: Vec<(ModelComponent, TransformComponent)>,
+    pub active_camera: CameraComponent,
+    pub window_id: winit::window::WindowId,
+}
 
 pub struct SunModel {
     pub id: uuid::Uuid,

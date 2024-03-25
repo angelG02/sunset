@@ -97,15 +97,11 @@ impl App for AssetServer {
                 }
             }
             CommandEvent::RequestCreateModel(model_comp) => {
-                let Some(model_path) = model_comp.model_path.clone() else {
-                    return;
-                };
-
-                if self.cached_assets.contains_key(&model_path) {
+                if self.cached_assets.contains_key(&model_comp.model_path) {
                     return;
                 }
 
-                let task = self.get(&format!("{} model", model_path));
+                let task = self.get(&format!("{} model", model_comp.model_path));
 
                 let cmd = Command {
                     app: "asset_server".into(),

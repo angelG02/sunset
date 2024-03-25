@@ -1,19 +1,9 @@
 use std::sync::Arc;
 
-use winit::dpi::PhysicalSize;
-
 use crate::prelude::{
-    buffer::BufferDesc, model_component::ModelComponent, pipeline::PipelineDesc, sun::RenderDesc,
-    Asset,
+    buffer::BufferDesc, model_component::ModelComponent, pipeline::PipelineDesc,
+    resources::model::RenderModelDesc, windower::NewWindowProps, Asset,
 };
-
-#[derive(Default, Debug, Clone)]
-pub struct NewWindowProps {
-    pub size: PhysicalSize<u32>,
-    pub name: String,
-    pub element_id: String,
-    // Option<Decorations...icon...etc, etc>
-}
 
 #[derive(Clone, bevy_ecs::event::Event)]
 pub enum CommandEvent {
@@ -25,7 +15,7 @@ pub enum CommandEvent {
     RequestPipeline(PipelineDesc),
     RequestCreateBuffer(BufferDesc),
     RequestDestroyBuffer(uuid::Uuid),
-    Render(RenderDesc),
+    RenderModel(RenderModelDesc),
 
     Asset(Asset),
     RequestCreateModel(ModelComponent),
@@ -51,7 +41,7 @@ impl std::fmt::Debug for CommandEvent {
             CommandEvent::RequestDestroyBuffer(id) => {
                 write!(f, "Event <RequestCreateBuffer> with: {id:?}")
             }
-            CommandEvent::Render(_) => write!(f, "Event <Render>"),
+            CommandEvent::RenderModel(_) => write!(f, "Event <RenderModel>"),
             CommandEvent::Asset(asset) => write!(f, "Event <Asset> with: {asset:?}"),
             CommandEvent::Exit => write!(f, "Event <Exit>"),
             CommandEvent::None => write!(f, "Event <None>"),

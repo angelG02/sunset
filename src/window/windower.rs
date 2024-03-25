@@ -8,10 +8,18 @@ use crate::{
     core::{
         app::App,
         command_queue::{Command, Task},
-        events::{CommandEvent, NewWindowProps},
+        events::CommandEvent,
     },
     prelude::command_queue::CommandType,
 };
+
+#[derive(Default, Debug, Clone)]
+pub struct NewWindowProps {
+    pub size: PhysicalSize<u32>,
+    pub name: String,
+    pub element_id: String,
+    // Option<Decorations...icon...etc, etc>
+}
 
 pub struct WinID {
     pub name: String,
