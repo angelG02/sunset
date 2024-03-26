@@ -42,12 +42,18 @@ pub struct Scene {
     cam_speed: f32,
     cam_should_move: bool,
     mouse_delta_y: f32,
+
+    // Temp object controls
+    rotation_speed: f32,
+    obj_should_rotate: bool,
+    mouse_delta_x: f32,
 }
 
 impl Scene {
     pub fn new() -> Self {
         let mut scene = Scene::default();
         scene.cam_speed = 1.0;
+        scene.rotation_speed = 10.0;
         scene
     }
 
@@ -91,11 +97,7 @@ impl Scene {
                 }
                 "model" => {
                     let model = ModelComponent::from_args(args.clone());
-                    let mut transform = TransformComponent::zero();
-                    transform.rotation =
-                        cgmath::Quaternion::<f32>::from_angle_y(Into::<cgmath::Rad<f32>>::into(
-                            cgmath::Deg(180.0),
-                        ));
+                    let transform = TransformComponent::zero();
                     events.push(CommandEvent::RequestCreateModel(model.clone()));
                     entity.insert((model, transform));
                 }
@@ -277,11 +279,11 @@ impl App for Scene {
     ) {
         match event {
             winit::event::WindowEvent::RedrawRequested => {
-                let mut primitives_from_scene =
+                let mut models_from_scene =
                     self.world.query::<(&ModelComponent, &TransformComponent)>();
                 let mut models = vec![];
 
-                for (model, transform) in primitives_from_scene.iter(&self.world) {
+                for (model, transform) in models_from_scene.iter(&self.world) {
                     models.push((model.clone(), transform.clone()));
                 }
 
@@ -340,10 +342,17 @@ impl App for Scene {
                     } else {
                         self.cam_should_move = false;
                     }
+                } else if *button == 1 {
+                    if *state == ElementState::Pressed {
+                        self.obj_should_rotate = true;
+                    } else {
+                        self.obj_should_rotate = false;
+                    }
                 }
             }
             winit::event::DeviceEvent::MouseMotion { delta } => {
                 self.mouse_delta_y = delta.1 as f32;
+                self.mouse_delta_x = delta.0 as f32;
             }
             winit::event::DeviceEvent::MouseWheel { delta } => {
                 match delta {
@@ -372,6 +381,23 @@ impl App for Scene {
             for cam in cams {
                 if let Some(mut cam_component) = self.world.get_mut::<CameraComponent>(cam) {
                     cam_component.eye.z += self.mouse_delta_y * delta_time * self.cam_speed;
+                }
+            }
+        }
+
+        // TODO (@A40): Should be done in update or in a system
+        let objects = self.query_world::<With<TransformComponent>>();
+
+        for obj in objects {
+            if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
+                transform.recalculate();
+
+                if self.obj_should_rotate {
+                    let new_rot = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
+                        self.mouse_delta_x * self.rotation_speed * delta_time,
+                    ));
+                    transform.rotation = transform.rotation * new_rot;
+                    transform.dirty = true;
                 }
             }
         }

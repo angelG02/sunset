@@ -1,5 +1,5 @@
 use bevy_ecs::component::Component;
-use cgmath::{Matrix3, Matrix4, SquareMatrix, Zero};
+use cgmath::{Matrix3, Matrix4, One, SquareMatrix, Zero};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Component)]
@@ -17,7 +17,7 @@ impl TransformComponent {
     pub fn zero() -> Self {
         Self {
             translation: cgmath::Vector3::zero(),
-            rotation: cgmath::Quaternion::zero(),
+            rotation: cgmath::Quaternion::<f32>::one(),
             scale: cgmath::Vector3::<f32>::new(1.0, 1.0, 1.0),
             model_matrix: cgmath::Matrix4::<f32>::from_value(1.0),
             dirty: true,

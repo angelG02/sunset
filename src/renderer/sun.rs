@@ -221,7 +221,6 @@ impl Sun {
                     // Camera Uniform Bind Group and Buffer Update
                     if let Some(camera_bg) = &self.active_camera_bindgroup {
                         for (model, mut transform) in render_desc.models {
-                            transform.recalculate();
                             let camera_uniform = ModelUniform::from_camera_and_model_transform(
                                 &render_desc.active_camera,
                                 &transform,
