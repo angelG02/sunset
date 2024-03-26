@@ -251,7 +251,7 @@ impl App for Scene {
         let load_camera_2d = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 1 0.1 100".into()),
+            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 1 0.0001 100".into()),
             None,
         );
 

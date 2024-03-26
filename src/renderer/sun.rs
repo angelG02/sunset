@@ -21,7 +21,10 @@ pub type PrimitiveID = uuid::Uuid;
 use super::{
     buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
-    resources::model::{DrawModel, RenderModelDesc, SunModel},
+    resources::{
+        model::{DrawModel, RenderModelDesc, SunModel},
+        texture::SunTexture,
+    },
 };
 
 pub struct Sun {
@@ -200,27 +203,34 @@ impl Sun {
             let basic_pipeline = self.pipelines.get("basic_shader.wgsl");
 
             {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(vp.desc.background),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
                 if let Some(pipe) = basic_pipeline {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(vp.desc.background),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &pipe.depth_texture.view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
                     rpass.set_pipeline(&pipe.pipeline);
 
                     // Camera Uniform Bind Group and Buffer Update
                     if let Some(camera_bg) = &self.active_camera_bindgroup {
-                        for (model, mut transform) in render_desc.models {
+                        for (model, transform) in render_desc.models {
                             let camera_uniform = ModelUniform::from_camera_and_model_transform(
                                 &render_desc.active_camera,
                                 &transform,
@@ -373,6 +383,13 @@ impl App for Sun {
                 if let Some(viewport) = self.viewports.get_mut(&window_id) {
                     {
                         viewport.resize(self.device.as_ref().unwrap(), new_size);
+                        for pipeline in self.pipelines.values_mut() {
+                            pipeline.depth_texture = SunTexture::create_depth_texture(
+                                self.device.as_ref().unwrap(),
+                                &viewport.config,
+                                "depth_texture",
+                            );
+                        }
                     }
                     // On macos the window needs to be redrawn manually after resizing
                     viewport.desc.window.request_redraw();

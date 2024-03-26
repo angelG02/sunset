@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use wgpu::Device;
 
-use super::sun::{ResourceID, Viewport};
+use super::{
+    resources::texture::SunTexture,
+    sun::{ResourceID, Viewport},
+};
 
 #[derive(Debug, Clone)]
 pub struct PipelineDesc {
@@ -23,6 +26,7 @@ pub struct SunPipeline {
     pub bind_group_layouts: Vec<wgpu::BindGroupLayout>,
     pub bind_groups: HashMap<ResourceID, (u32, wgpu::BindGroup)>,
 
+    pub depth_texture: SunTexture,
     pub pipeline: wgpu::RenderPipeline,
 }
 
@@ -37,6 +41,9 @@ impl SunPipeline {
         topology: wgpu::PrimitiveTopology,
     ) -> Self {
         let mut bind_group_layouts = Vec::new();
+
+        let depth_texture =
+            SunTexture::create_depth_texture(device, viewport.get_config(), "depth_texture");
 
         for index in 0..bind_group_layout_descs.len() as u32 {
             let bind_group_layout =
@@ -87,7 +94,13 @@ impl SunPipeline {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -102,6 +115,7 @@ impl SunPipeline {
             bind_group_layouts,
             bind_groups: HashMap::new(),
             pipeline,
+            depth_texture,
         }
     }
 
