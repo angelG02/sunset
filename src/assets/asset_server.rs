@@ -13,15 +13,17 @@ use crate::{
     prelude::command_queue::CommandType,
 };
 
-use super::{asset_cmd::AssetCommand, Asset, AssetStatus};
+use super::{asset_cmd::AssetCommand, Asset, AssetStatus, AssetType};
 
 pub struct AssetServer {
     pub server_addr: String,
     pub commands: Vec<Command>,
 
     pub cached_assets: HashMap<String, Asset>,
+    pub changed_assets: Vec<(String, AssetType)>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+    pub time_elapsed: f32,
 }
 
 impl AssetServer {
@@ -31,8 +33,10 @@ impl AssetServer {
             commands: vec![],
 
             cached_assets: HashMap::new(),
+            changed_assets: Vec::new(),
 
             proxy: None,
+            time_elapsed: 0.0,
         }
     }
 
@@ -117,7 +121,36 @@ impl App for AssetServer {
         }
     }
 
-    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
+    fn update(&mut self, delta_time: f32) -> Vec<Command> {
+        self.time_elapsed += delta_time;
+
+        if self.time_elapsed > 10.0 {
+            for (path, asset_type) in &self.changed_assets {
+                let asset_type = match asset_type {
+                    AssetType::Material => "material",
+                    AssetType::String => "text",
+                    AssetType::Shader => "shader",
+                    AssetType::Texture => "texture",
+                    AssetType::Mesh => "mesh",
+                    AssetType::Model => "model",
+                    AssetType::Unknown => "idk bruv",
+                };
+
+                let task = self.get(format!("{} {}", path, asset_type).as_str());
+                let cmd = Command {
+                    app: "asset_server".into(),
+                    command_type: CommandType::Get,
+                    processed: true,
+                    args: None,
+                    task,
+                };
+
+                self.commands.push(cmd);
+            }
+            self.changed_assets.clear();
+            self.time_elapsed = 0.0;
+        }
+
         self.commands.drain(..).collect()
     }
 
