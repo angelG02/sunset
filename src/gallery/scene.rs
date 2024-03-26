@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 use winit::{
     event::{ElementState, MouseScrollDelta},
     event_loop::EventLoopProxy,
+    keyboard::{KeyCode, PhysicalKey},
 };
 
 use crate::{
@@ -265,6 +266,7 @@ impl App for Scene {
 
     fn update(&mut self, _delta_time: f32) -> Vec<Command> {
         if initialized() {
+            self.world.clear_trackers();
             self.commands.drain(..).collect()
         } else {
             vec![]
@@ -275,7 +277,7 @@ impl App for Scene {
         &mut self,
         event: &winit::event::WindowEvent,
         window_id: winit::window::WindowId,
-        _delta_time: f32,
+        delta_time: f32,
     ) {
         match event {
             winit::event::WindowEvent::RedrawRequested => {
@@ -321,6 +323,26 @@ impl App for Scene {
                         if let CamType::Perspective(props) = &mut cam_component.camera_type {
                             props.aspect = new_size.width as f32 / new_size.height as f32;
                         }
+                    }
+                }
+            }
+
+            winit::event::WindowEvent::KeyboardInput {
+                device_id: _,
+                event,
+                is_synthetic: _,
+            } => {
+                if event.physical_key == PhysicalKey::Code(KeyCode::KeyE) {
+                    let mut q = self.world.query::<&mut TransformComponent>();
+                    for mut transform in q.iter_mut(&mut self.world) {
+                        transform.translation.y += self.cam_speed * delta_time * 50.0;
+                        transform.dirty = true;
+                    }
+                } else if event.physical_key == PhysicalKey::Code(KeyCode::KeyQ) {
+                    let mut q = self.world.query::<&mut TransformComponent>();
+                    for mut transform in q.iter_mut(&mut self.world) {
+                        transform.translation.y -= self.cam_speed * delta_time * 50.0;
+                        transform.dirty = true;
                     }
                 }
             }
@@ -390,8 +412,6 @@ impl App for Scene {
 
         for obj in objects {
             if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
-                transform.recalculate();
-
                 if self.obj_should_rotate {
                     let new_rot = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
                         self.mouse_delta_x * self.rotation_speed * delta_time,
@@ -399,6 +419,7 @@ impl App for Scene {
                     transform.rotation = transform.rotation * new_rot;
                     transform.dirty = true;
                 }
+                transform.recalculate();
             }
         }
     }
