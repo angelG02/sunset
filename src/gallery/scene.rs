@@ -54,7 +54,14 @@ impl Scene {
     pub fn new() -> Self {
         let mut scene = Scene::default();
         scene.cam_speed = 1.0;
-        scene.rotation_speed = 10.0;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            scene.rotation_speed = 5.0;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            scene.rotation_speed = 300.0;
+        }
         scene
     }
 
@@ -65,9 +72,9 @@ impl Scene {
         let task = match vec_args[0].to_ascii_lowercase().trim() {
             "add" => self.add_entity_from_args(vec_args[1..].join(" ").as_str()),
             "remove" => self.remove_entity(vec_args[1..].join(" ").as_str()),
-            "set_texture" => {
+            "set_model" => {
                 if vec_args[1..].len() >= 2 {
-                    self.set_texture(vec_args[1], vec_args[2])
+                    self.set_model(vec_args[1], vec_args[2])
                 } else {
                     error!("Expected 2 or more arguments");
                     None
@@ -173,24 +180,36 @@ impl Scene {
             .insert(ActiveCameraComponent {});
     }
 
-    pub fn set_texture(
+    pub fn set_model(
         &mut self,
-        tex_name: &str,
+        model_path: &str,
         entity_name: &str,
     ) -> Option<Task<Vec<CommandEvent>>> {
+        let mut events = Vec::new();
         let entity = self.get_entity_with_name(entity_name);
         if let Some(e) = entity {
-            let primitive = self.world.get_mut::<Primitive>(e);
-            if let Some(mut p) = primitive {
-                p.temp_diffuse = Some(tex_name.to_owned());
+            let model = self.world.get_mut::<ModelComponent>(e);
+            if let Some(mut m) = model {
+                m.model_path = model_path.to_owned();
+                events.push(CommandEvent::RequestCreateModel(m.clone()));
             } else {
-                error!("Entity <{}> has no primitive component!", entity_name);
+                error!("Entity <{}> has no model component!", entity_name);
+                let model = ModelComponent::from_args(vec![model_path]);
+                let transform = TransformComponent::zero();
+                events.push(CommandEvent::RequestCreateModel(model.clone()));
+
+                self.world
+                    .get_entity_mut(e)
+                    .unwrap()
+                    .insert((model, transform));
             }
         } else {
             error!("Entity <{}> not found!", entity_name);
         }
 
-        None
+        let task = move || events.clone();
+
+        Some(Box::new(task))
     }
 
     pub fn remove_entity(&mut self, name: &str) -> Option<Task<Vec<CommandEvent>>> {
@@ -245,14 +264,22 @@ impl App for Scene {
         let load_basic_cube = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Cube --model models/avocado/Avocado.glb".into()),
+            //Some("add --name Cube --model models/test/big-test.glb".into()),
+            Some("add --name Cube --model models/test/duck.glb".into()),
+            //Some("add --name Cube --model models/avocado/Avocado.glb".into()),
+            //Some("add --name Cube --model models/deivche/Cartoon_house.glb".into()),
+            //Some("add --name Cube --model models/gltf-samples/Buggy/glTF-Binary/Buggy.glb".into()),
+            // Some(
+            //     "add --name Cube --model models/gltf-samples/2CylinderEngine/2CylinderEngine.glb"
+            //         .into(),
+            // ),
             None,
         );
 
         let load_camera_2d = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 1 0.0001 100".into()),
+            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 1 0.0001 1000".into()),
             None,
         );
 
@@ -335,13 +362,13 @@ impl App for Scene {
                 if event.physical_key == PhysicalKey::Code(KeyCode::KeyE) {
                     let mut q = self.world.query::<&mut TransformComponent>();
                     for mut transform in q.iter_mut(&mut self.world) {
-                        transform.translation.y += self.cam_speed * delta_time * 50.0;
+                        transform.translation.y -= self.cam_speed * delta_time * 50.0;
                         transform.dirty = true;
                     }
                 } else if event.physical_key == PhysicalKey::Code(KeyCode::KeyQ) {
                     let mut q = self.world.query::<&mut TransformComponent>();
                     for mut transform in q.iter_mut(&mut self.world) {
-                        transform.translation.y -= self.cam_speed * delta_time * 50.0;
+                        transform.translation.y += self.cam_speed * delta_time * 50.0;
                         transform.dirty = true;
                     }
                 }
@@ -413,10 +440,14 @@ impl App for Scene {
         for obj in objects {
             if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
                 if self.obj_should_rotate {
-                    let new_rot = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
+                    let _new_rot_x = cgmath::Quaternion::<f32>::from_angle_x(cgmath::Rad(
+                        self.mouse_delta_y * self.rotation_speed * delta_time,
+                    ));
+                    let new_rot_y = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
                         self.mouse_delta_x * self.rotation_speed * delta_time,
                     ));
-                    transform.rotation = transform.rotation * new_rot;
+                    //transform.rotation = transform.rotation * new_rot_x;
+                    transform.rotation = transform.rotation * new_rot_y;
                     transform.dirty = true;
                 }
                 transform.recalculate();

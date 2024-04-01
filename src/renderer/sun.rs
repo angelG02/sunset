@@ -11,7 +11,7 @@ use crate::{
         command_queue::CommandType,
         state,
         transform_component::TransformComponent,
-        Asset, AssetType,
+        Asset, AssetStatus, AssetType,
     },
 };
 
@@ -30,15 +30,15 @@ use super::{
 pub struct Sun {
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
-    device: Option<wgpu::Device>,
-    queue: Option<wgpu::Queue>,
+    pub device: Option<wgpu::Device>,
+    pub queue: Option<wgpu::Queue>,
 
     pub viewports: HashMap<winit::window::WindowId, Viewport>,
     pub pipelines: HashMap<String, SunPipeline>,
     pub shaders: HashMap<String, Asset>,
 
-    pub active_camera_buffer: Option<SunBuffer>,
-    pub active_camera_bindgroup: Option<wgpu::BindGroup>,
+    pub mvp_buffer: Option<SunBuffer>,
+    pub mvp_bindgroup: Option<wgpu::BindGroup>,
 
     pub models: HashMap<String, SunModel>,
 
@@ -88,9 +88,9 @@ impl Sun {
         let vp_desc = ViewportDesc::new(
             Arc::clone(&window),
             wgpu::Color {
-                r: 224.0,
-                g: 188.0,
-                b: 223.0,
+                r: 224.0 / 255.0,
+                g: 188.0 / 255.0,
+                b: 223.0 / 255.0,
                 a: 0.0,
             },
             self.instance.as_ref().unwrap(),
@@ -139,20 +139,20 @@ impl Sun {
     }
 
     pub async fn regenerate_buffers(&mut self) {
-        if self.active_camera_buffer.is_none() {
+        if self.mvp_buffer.is_none() {
             let dummy_cam = CameraComponent::default();
             let dummy_transform = TransformComponent::zero();
             let dummy_cam_uniform =
                 ModelUniform::from_camera_and_model_transform(&dummy_cam, &dummy_transform);
 
-            self.active_camera_buffer = Some(SunBuffer::new_with_data(
+            self.mvp_buffer = Some(SunBuffer::new_with_data(
                 "Camera Uniform Buffer",
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 bytemuck::cast_slice(&[dummy_cam_uniform]),
                 self.device.as_ref().unwrap(),
             ));
 
-            self.active_camera_bindgroup = Some(
+            self.mvp_bindgroup = Some(
                 self.device
                     .as_ref()
                     .unwrap()
@@ -168,7 +168,7 @@ impl Sun {
                         entries: &[wgpu::BindGroupEntry {
                             binding: 0,
                             resource: self
-                                .active_camera_buffer
+                                .mvp_buffer
                                 .as_ref()
                                 .unwrap()
                                 .get_buffer()
@@ -179,78 +179,90 @@ impl Sun {
         }
     }
 
-    pub async fn redraw(&mut self, render_desc: RenderModelDesc) {
+    pub async fn redraw(&mut self, mut render_desc: RenderModelDesc) {
         if !state::initialized() {
             return;
         }
 
+        render_desc
+            .models
+            .sort_by(|a, b| a.1.translation.z.total_cmp(&b.1.translation.z));
+
         self.regenerate_buffers().await;
 
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
-            let Ok(frame) = vp.get_current_texture() else {
-                return;
-            };
+            if let Some(mvp_bg) = &self.mvp_bindgroup {
+                let Ok(frame) = vp.get_current_texture() else {
+                    return;
+                };
 
-            let view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder = self
-                .device
-                .as_ref()
-                .unwrap()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let basic_pipeline = self.pipelines.get("basic_shader.wgsl");
+                let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor {
+                        label: Some("model_render_commands"),
+                    },
+                );
 
-            {
+                // TODO (@A40): Get pipeline from material!
+                let basic_pipeline = self.pipelines.get("basic_shader.wgsl");
+
                 if let Some(pipe) = basic_pipeline {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(vp.desc.background),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &pipe.depth_texture.view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                    {
+                        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(vp.desc.background),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &pipe.depth_texture.view,
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(1.0),
+                                        store: wgpu::StoreOp::Store,
+                                    }),
+                                    stencil_ops: Some(wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(0),
+                                        store: wgpu::StoreOp::Store,
+                                    }),
+                                },
+                            ),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
 
-                    rpass.set_pipeline(&pipe.pipeline);
+                        for (model, transform) in render_desc.models.iter().rev() {
+                            rpass.set_pipeline(&pipe.pipeline);
 
-                    // Camera Uniform Bind Group and Buffer Update
-                    if let Some(camera_bg) = &self.active_camera_bindgroup {
-                        for (model, transform) in render_desc.models {
-                            let camera_uniform = ModelUniform::from_camera_and_model_transform(
+                            let mvp = ModelUniform::from_camera_and_model_transform(
                                 &render_desc.active_camera,
                                 &transform,
                             );
+
                             self.queue.as_ref().unwrap().write_buffer(
-                                self.active_camera_buffer.as_ref().unwrap().get_buffer(),
+                                self.mvp_buffer.as_ref().unwrap().get_buffer(),
                                 0,
-                                bytemuck::cast_slice(&[camera_uniform]),
+                                bytemuck::cast_slice(&[mvp]),
                             );
+
                             // Draw model through the active camera
                             if let Some(model) = self.models.get(&model.model_path) {
-                                rpass.draw_model(&model, camera_bg);
+                                rpass.draw_model(&model, mvp_bg);
                             }
                         }
                     }
+                    self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
                 }
-            }
 
-            self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
-            frame.present();
+                frame.present();
+            }
         }
     }
 }
@@ -275,8 +287,8 @@ impl Default for Sun {
             pipelines: HashMap::new(),
             shaders: HashMap::new(),
 
-            active_camera_buffer: None,
-            active_camera_bindgroup: None,
+            mvp_buffer: None,
+            mvp_bindgroup: None,
 
             models: HashMap::new(),
 
@@ -335,38 +347,44 @@ impl App for Sun {
                 .await;
             }
 
-            CommandEvent::Asset(asset) => match asset.asset_type {
-                AssetType::Shader => {
-                    self.shaders.insert(asset.name.clone(), asset.clone());
+            CommandEvent::Asset(asset) => {
+                if asset.status == AssetStatus::NotFound {
+                    return;
                 }
-                AssetType::Model => {
-                    let diffuse_texture_bg_layout = &self
-                        .pipelines
-                        .get("basic_shader.wgsl")
-                        .unwrap()
-                        .bind_group_layouts[1];
+                match asset.asset_type {
+                    AssetType::Shader => {
+                        self.shaders.insert(asset.name.clone(), asset.clone());
+                    }
+                    AssetType::Model => {
+                        let diffuse_texture_bg_layout = &self
+                            .pipelines
+                            .get("basic_shader.wgsl")
+                            .unwrap()
+                            .bind_group_layouts[1];
 
-                    let model = SunModel::from_glb(
-                        asset,
-                        &diffuse_texture_bg_layout,
-                        self.queue.as_ref().unwrap(),
-                        self.device.as_ref().unwrap(),
-                    );
+                        let model = SunModel::from_glb(
+                            asset,
+                            &diffuse_texture_bg_layout,
+                            self.queue.as_ref().unwrap(),
+                            self.device.as_ref().unwrap(),
+                        );
 
-                    match model {
-                        Ok(model) => {
-                            self.models.insert(asset.path.clone(), model);
-                        }
-                        Err(err) => {
-                            error!(
-                                "Failed to create model from Glb: {} with error: {}",
-                                asset.path, err
-                            );
+                        match model {
+                            Ok(model) => {
+                                info!("Created Model: {:?}", asset.path);
+                                self.models.insert(asset.path.clone(), model);
+                            }
+                            Err(err) => {
+                                error!(
+                                    "Failed to create model from Glb: {} with error: {}",
+                                    asset.path, err
+                                );
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             _ => {}
         }
     }

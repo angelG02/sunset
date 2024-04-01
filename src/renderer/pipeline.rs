@@ -45,6 +45,20 @@ impl SunPipeline {
         let depth_texture =
             SunTexture::create_depth_texture(device, viewport.get_config(), "depth_texture");
 
+        let stencil_state_front = wgpu::StencilFaceState {
+            compare: wgpu::CompareFunction::Greater,
+            fail_op: wgpu::StencilOperation::IncrementClamp,
+            depth_fail_op: wgpu::StencilOperation::DecrementClamp,
+            pass_op: wgpu::StencilOperation::DecrementClamp,
+        };
+
+        let stencil_state_back = wgpu::StencilFaceState {
+            compare: wgpu::CompareFunction::Always,
+            fail_op: wgpu::StencilOperation::DecrementClamp,
+            depth_fail_op: wgpu::StencilOperation::IncrementClamp,
+            pass_op: wgpu::StencilOperation::DecrementClamp,
+        };
+
         for index in 0..bind_group_layout_descs.len() as u32 {
             let bind_group_layout =
                 device.create_bind_group_layout(&bind_group_layout_descs[index as usize]);
@@ -95,10 +109,15 @@ impl SunPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: wgpu::TextureFormat::Depth24PlusStencil8,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState {
+                    front: stencil_state_front,
+                    back: stencil_state_back,
+                    read_mask: 0xff,
+                    write_mask: 0xff,
+                },
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
