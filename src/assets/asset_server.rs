@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use tracing::{error, warn};
+use tracing::error;
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
@@ -95,7 +95,7 @@ impl App for AssetServer {
         match event {
             CommandEvent::Asset(asset) => {
                 if asset.status == AssetStatus::NotFound {
-                    warn!("File <{}> not found!", asset.path);
+                    error!("File <{}> not found!", asset.path);
                 } else {
                     self.cached_assets.insert(asset.path.clone(), asset.clone());
                 }

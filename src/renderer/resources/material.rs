@@ -3,6 +3,8 @@ use wgpu::{BindGroupLayout, Device, Queue};
 
 use super::texture::SunTexture;
 
+#[derive(Debug)]
+
 pub struct SunMaterial {
     pub name: String,
     pub id: uuid::Uuid,
@@ -13,13 +15,15 @@ pub struct SunMaterial {
 impl SunMaterial {
     pub fn from_diffuse_bytes(
         data: &[u8],
+        format: image::ImageFormat,
         name: &str,
         id: Option<uuid::Uuid>,
         device: &Device,
         queue: &Queue,
         bind_group_layout: &BindGroupLayout,
     ) -> anyhow::Result<SunMaterial> {
-        let diffuse_texture = SunTexture::from_bytes(device, queue, data, "Diffuse Texture")?;
+        let diffuse_texture =
+            SunTexture::from_bytes(Some("Diffuse Texture"), device, queue, data, format)?;
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
