@@ -8,12 +8,14 @@ use super::{material::SunMaterial, mesh::SunMesh};
 use crate::{
     assets::Asset,
     prelude::{
-        buffer::SunBuffer, camera_component::CameraComponent, model_component::ModelComponent,
-        primitive::Vertex, resources::texture::SunTexture, transform_component::TransformComponent,
+        camera_component::CameraComponent, model_component::ModelComponent,
+        transform_component::TransformComponent,
     },
 };
 
+use cgmath::SquareMatrix;
 use gltf::{json::root::*, Document};
+use tracing::error;
 
 #[derive(Debug, Clone)]
 pub struct RenderModelDesc {
@@ -22,6 +24,7 @@ pub struct RenderModelDesc {
     pub window_id: winit::window::WindowId,
 }
 
+#[derive(Debug)]
 pub struct SunModel {
     pub id: uuid::Uuid,
     pub meshes: Vec<SunMesh>,
@@ -46,7 +49,7 @@ impl SunModel {
         };
 
         let root = Root::from_slice(&glb_model.json)?;
-        let doc = Document::from_json_without_validation(root);
+        let doc = Document::from_json(root)?;
 
         let mut meshes: Vec<SunMesh> = Vec::new();
         let mut materials: HashMap<uuid::Uuid, SunMaterial> =
@@ -55,237 +58,24 @@ impl SunModel {
         for scene in doc.scenes() {
             meshes.reserve(scene.nodes().len());
             for node in scene.nodes() {
-                if let Some(mesh) = node.mesh() {
-                    let id = uuid::Uuid::new_v4();
-                    let name = mesh.name().unwrap_or("Unnamed_Mesh");
-                    let material_id = uuid::Uuid::new_v4();
-                    let mut with_16bit_indices = false;
+                let parent_transform = cgmath::Matrix4::<f32>::from_value(1.0);
 
-                    let num_vertices = mesh
-                        .primitives()
-                        .nth(0)
-                        .unwrap()
-                        .attributes()
-                        .nth(0)
-                        .unwrap()
-                        .1
-                        .count();
-
-                    // Initialize array for the various components of the mesh
-                    // with the vertices count to prevent reallocation on resizing
-                    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
-                    let mut normals: Vec<[f32; 3]> = Vec::with_capacity(num_vertices);
-                    let mut tex_coords: Vec<[f32; 2]> = Vec::with_capacity(num_vertices);
-                    let mut indices_u32: Vec<u32> = Vec::with_capacity(num_vertices);
-                    let mut indices_u16: Vec<u16> = Vec::with_capacity(num_vertices);
-
-                    // Vertex array creation
-                    for primitive in mesh.primitives() {
-                        for (semantic, accessor) in primitive.attributes() {
-                            let Some(buffer_view) = accessor.view() else {
-                                return Err(anyhow::Error::new(
-                                    ModelCreationError::UnsupportedSparseAccessor(name.to_owned()),
-                                ));
-                            };
-                            let data = &bin
-                                [buffer_view.offset()..buffer_view.offset() + buffer_view.length()];
-
-                            match semantic {
-                                gltf::Semantic::Positions => {
-                                    for chunk in data.chunks_exact(3 * std::mem::size_of::<f32>()) {
-                                        let position = [
-                                            f32::from_ne_bytes([
-                                                chunk[0], chunk[1], chunk[2], chunk[3],
-                                            ]),
-                                            f32::from_ne_bytes([
-                                                chunk[4], chunk[5], chunk[6], chunk[7],
-                                            ]),
-                                            f32::from_ne_bytes([
-                                                chunk[8], chunk[9], chunk[10], chunk[11],
-                                            ]),
-                                        ];
-                                        positions.push(position);
-                                    }
-                                }
-                                gltf::Semantic::Normals => {
-                                    for chunk in data.chunks_exact(3 * std::mem::size_of::<f32>()) {
-                                        let normal = [
-                                            f32::from_ne_bytes([
-                                                chunk[0], chunk[1], chunk[2], chunk[3],
-                                            ]),
-                                            f32::from_ne_bytes([
-                                                chunk[4], chunk[5], chunk[6], chunk[7],
-                                            ]),
-                                            f32::from_ne_bytes([
-                                                chunk[8], chunk[9], chunk[10], chunk[11],
-                                            ]),
-                                        ];
-                                        normals.push(normal);
-                                    }
-                                }
-                                gltf::Semantic::TexCoords(_index) => {
-                                    for chunk in data.chunks_exact(2 * std::mem::size_of::<f32>()) {
-                                        let tex_coord = [
-                                            f32::from_ne_bytes([
-                                                chunk[0], chunk[1], chunk[2], chunk[3],
-                                            ]),
-                                            f32::from_ne_bytes([
-                                                chunk[4], chunk[5], chunk[6], chunk[7],
-                                            ]),
-                                        ];
-                                        tex_coords.push(tex_coord);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        // Index array creation
-                        let Some(indices_accessor) = primitive.indices() else {
-                            return Err(anyhow::Error::new(
-                                ModelCreationError::MissingIndexBuffer(name.to_owned()),
-                            ));
-                        };
-
-                        let Some(buffer_view) = indices_accessor.view() else {
-                            return Err(anyhow::Error::new(
-                                ModelCreationError::MissingIndexBuffer(name.to_owned()),
-                            ));
-                        };
-
-                        let data =
-                            &bin[buffer_view.offset()..buffer_view.offset() + buffer_view.length()];
-
-                        match indices_accessor.data_type() {
-                            gltf::accessor::DataType::U16 => {
-                                for chunk in data.chunks_exact(std::mem::size_of::<u16>()) {
-                                    let index = u16::from_ne_bytes([chunk[0], chunk[1]]);
-                                    indices_u16.push(index);
-                                    with_16bit_indices = true;
-                                }
-                            }
-                            gltf::accessor::DataType::U32 => {
-                                for chunk in data.chunks_exact(std::mem::size_of::<u32>()) {
-                                    let index = u32::from_ne_bytes([
-                                        chunk[0], chunk[1], chunk[2], chunk[3],
-                                    ]);
-                                    indices_u32.push(index);
-                                }
-                            }
-                            _ => {
-                                unreachable!()
-                            }
-                        }
-
-                        // Material creation
-                        use gltf::image::*;
-
-                        let Some(base_color_texture_info) = primitive
-                            .material()
-                            .pbr_metallic_roughness()
-                            .base_color_texture()
-                        else {
-                            return Err(anyhow::Error::new(
-                                ModelCreationError::BaseColorTextureNotFound(name.to_owned()),
-                            ));
-                        };
-
-                        let material_name =
-                            primitive.material().name().unwrap_or("Unnamed_Material");
-
-                        let src = base_color_texture_info.texture().source().source();
-
-                        match src {
-                            Source::View { view, mime_type: _ } => {
-                                let data = &bin[view.offset()..view.offset() + view.length()];
-
-                                let diffuse_texture =
-                                    SunTexture::from_bytes(device, queue, data, "Diffuse Texture")?;
-
-                                let bind_group =
-                                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                                        label: None,
-                                        layout: bind_group_layout,
-                                        entries: &[
-                                            wgpu::BindGroupEntry {
-                                                binding: 0,
-                                                resource: wgpu::BindingResource::TextureView(
-                                                    &diffuse_texture.view,
-                                                ),
-                                            },
-                                            wgpu::BindGroupEntry {
-                                                binding: 1,
-                                                resource: wgpu::BindingResource::Sampler(
-                                                    &diffuse_texture.sampler,
-                                                ),
-                                            },
-                                        ],
-                                    });
-
-                                materials.insert(
-                                    material_id,
-                                    SunMaterial {
-                                        name: material_name.to_owned(),
-                                        id: material_id,
-                                        diffuse_texture,
-                                        bind_group,
-                                    },
-                                );
-                            }
-                            Source::Uri {
-                                uri: _,
-                                mime_type: _,
-                            } => {
-                                unreachable!()
-                            }
-                        }
-                    }
-
-                    let vertices = (0..positions.len())
-                        .map(|i| Vertex {
-                            position: positions[i],
-                            tex_coords: tex_coords[i],
-                            normal: normals[i],
-                        })
-                        .collect::<Vec<_>>();
-
-                    let vb = SunBuffer::new_with_data(
-                        "Vertex buffer",
-                        wgpu::BufferUsages::VERTEX,
-                        bytemuck::cast_slice(&vertices),
-                        device,
-                    );
-
-                    let ib = SunBuffer::new_with_data(
-                        "Index buffer",
-                        wgpu::BufferUsages::INDEX,
-                        if with_16bit_indices {
-                            bytemuck::cast_slice(&indices_u16)
-                        } else {
-                            bytemuck::cast_slice(&indices_u32)
-                        },
-                        device,
-                    );
-
-                    let mesh = SunMesh {
-                        id,
-                        with_16bit_indices,
-                        name: name.to_owned(),
-                        vertex_buffer: vb,
-                        index_buffer: ib,
-                        index_count: if with_16bit_indices {
-                            indices_u16.len() as u32
-                        } else {
-                            indices_u32.len() as u32
-                        },
-                        material: material_id,
-                    };
-
-                    meshes.push(mesh);
+                let res = SunMesh::from_gltf_node(
+                    &mut meshes,
+                    node,
+                    parent_transform,
+                    bind_group_layout,
+                    &mut materials,
+                    &bin,
+                    device,
+                    queue,
+                );
+                match res {
+                    Ok(()) => {}
+                    Err(err) => error!("{err}"),
                 }
             }
         }
-
         Ok(Self {
             id: uuid::Uuid::new_v4(),
             meshes,
@@ -332,21 +122,21 @@ pub trait DrawModel<'a> {
         &mut self,
         mesh: &'a SunMesh,
         material: &'a SunMaterial,
-        camera_bind_group: &'a wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     );
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'a SunMesh,
         material: &'a SunMaterial,
         instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     );
-    fn draw_model(&mut self, model: &'a SunModel, camera_bind_group: &'a wgpu::BindGroup);
+    fn draw_model(&mut self, model: &'a SunModel, mvp_bg: &'a wgpu::BindGroup);
     fn draw_model_instanced(
         &mut self,
         model: &'a SunModel,
         instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     );
 }
 
@@ -358,16 +148,16 @@ where
         &mut self,
         mesh: &'b SunMesh,
         material: &'a SunMaterial,
-        camera_bind_group: &'a wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     ) {
-        self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group);
+        self.draw_mesh_instanced(mesh, material, 0..1, mvp_bg);
     }
     fn draw_mesh_instanced(
         &mut self,
         mesh: &'a SunMesh,
         material: &'a SunMaterial,
         instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     ) {
         self.set_vertex_buffer(0, mesh.vertex_buffer.get_buffer().slice(..));
         self.set_index_buffer(
@@ -378,24 +168,25 @@ where
                 wgpu::IndexFormat::Uint32
             },
         );
-        self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(0, mvp_bg, &[]);
         self.set_bind_group(1, &material.bind_group, &[]);
+        self.set_stencil_reference(1);
         self.draw_indexed(0..mesh.index_count, 0, instances);
     }
 
-    fn draw_model(&mut self, model: &'b SunModel, camera_bind_group: &'b wgpu::BindGroup) {
-        self.draw_model_instanced(model, 0..1, camera_bind_group);
+    fn draw_model(&mut self, model: &'b SunModel, mvp_bg: &'a wgpu::BindGroup) {
+        self.draw_model_instanced(model, 0..1, mvp_bg);
     }
 
     fn draw_model_instanced(
         &mut self,
         model: &'b SunModel,
         instances: Range<u32>,
-        camera_bind_group: &'b wgpu::BindGroup,
+        mvp_bg: &'a wgpu::BindGroup,
     ) {
         for mesh in &model.meshes {
             let material = model.materials.get(&mesh.material).unwrap();
-            self.draw_mesh_instanced(mesh, material, instances.clone(), camera_bind_group);
+            self.draw_mesh_instanced(mesh, material, instances.clone(), mvp_bg);
         }
     }
 }
