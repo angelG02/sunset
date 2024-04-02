@@ -72,7 +72,7 @@ impl Sun {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::DEPTH32FLOAT_STENCIL8,
                     required_limits: self.adapter.as_ref().unwrap().limits(),
                 },
                 None,
