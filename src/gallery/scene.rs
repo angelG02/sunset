@@ -53,14 +53,15 @@ pub struct Scene {
 impl Scene {
     pub fn new() -> Self {
         let mut scene = Scene::default();
-        scene.cam_speed = 1.0;
         #[cfg(not(target_arch = "wasm32"))]
         {
+            scene.cam_speed = 1.0;
             scene.rotation_speed = 5.0;
         }
         #[cfg(target_arch = "wasm32")]
         {
-            scene.rotation_speed = 3600.0;
+            scene.cam_speed = 5000.0;
+            scene.rotation_speed = 2.0 / 100000.0;
         }
         scene
     }
@@ -279,7 +280,7 @@ impl App for Scene {
         let load_camera_2d = Command::new(
             "default_scene",
             CommandType::Get,
-            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 1 0.0001 1000".into()),
+            Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 4 0.0001 1000".into()),
             None,
         );
 
@@ -291,13 +292,32 @@ impl App for Scene {
         self.process_scene_commands(cmd).await;
     }
 
-    fn update(&mut self, _delta_time: f32) -> Vec<Command> {
+    fn update(&mut self, delta_time: f32) -> Vec<Command> {
+        // TODO (@A40): Should be done in update or in a system
+        let objects = self.query_world::<With<TransformComponent>>();
+
+        for obj in objects {
+            if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
+                //if self.obj_should_rotate {
+                let _new_rot_x = cgmath::Quaternion::<f32>::from_angle_x(cgmath::Rad(
+                    self.mouse_delta_y * self.rotation_speed * 1.0,
+                ));
+                let new_rot_y =
+                    cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(self.rotation_speed * 1.0));
+                //transform.rotation = transform.rotation * new_rot_x;
+                transform.rotation = transform.rotation * new_rot_y;
+                transform.dirty = true;
+                //}
+                transform.recalculate();
+            }
+        }
+
         if initialized() {
             self.world.clear_trackers();
-            self.commands.drain(..).collect()
-        } else {
-            vec![]
+            return self.commands.drain(..).collect();
         }
+
+        vec![]
     }
 
     async fn process_window_event(
@@ -410,12 +430,14 @@ impl App for Scene {
                         if self.cam_speed < 0.0 {
                             self.cam_speed = 0.0;
                         }
+                        self.rotation_speed += y / 10000000.0;
                     }
                     MouseScrollDelta::PixelDelta(delta) => {
                         self.cam_speed += delta.y as f32;
                         if self.cam_speed < 0.0 {
                             self.cam_speed = 0.0;
                         }
+                        self.rotation_speed += delta.y as f32 / 10000000.0;
                     }
                 }
                 info!("Cam speed set to: {}", self.cam_speed);
@@ -431,26 +453,6 @@ impl App for Scene {
                 if let Some(mut cam_component) = self.world.get_mut::<CameraComponent>(cam) {
                     cam_component.eye.z += self.mouse_delta_y * delta_time * self.cam_speed;
                 }
-            }
-        }
-
-        // TODO (@A40): Should be done in update or in a system
-        let objects = self.query_world::<With<TransformComponent>>();
-
-        for obj in objects {
-            if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
-                if self.obj_should_rotate {
-                    let _new_rot_x = cgmath::Quaternion::<f32>::from_angle_x(cgmath::Rad(
-                        self.mouse_delta_y * self.rotation_speed * delta_time,
-                    ));
-                    let new_rot_y = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
-                        self.mouse_delta_x * self.rotation_speed * delta_time,
-                    ));
-                    //transform.rotation = transform.rotation * new_rot_x;
-                    transform.rotation = transform.rotation * new_rot_y;
-                    transform.dirty = true;
-                }
-                transform.recalculate();
             }
         }
     }
