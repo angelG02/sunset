@@ -246,7 +246,7 @@ impl AssetCommand {
                 let cloned_ws = ws.clone();
 
                 let onopen_callback = Closure::<dyn FnMut()>::new(move || {
-                    debug!("socket opened");
+                    //debug!("socket opened");
                     match cloned_ws.send_with_str("get changed") {
                         Ok(_) => {
                             //debug!("message successfully sent");
@@ -309,7 +309,7 @@ impl AssetCommand {
 
                 let file_path_copy = file_path.to_owned();
                 let onopen_callback = Closure::<dyn FnMut()>::new(move || {
-                    debug!("socket opened");
+                    //debug!("socket opened");
                     match cloned_ws.send_with_str(
                         format!("{}{} {}", "get ", file_path_copy, request_type).as_str(),
                     ) {
