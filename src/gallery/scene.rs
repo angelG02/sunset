@@ -60,7 +60,7 @@ impl Scene {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            scene.rotation_speed = 300.0;
+            scene.rotation_speed = 3600.0;
         }
         scene
     }

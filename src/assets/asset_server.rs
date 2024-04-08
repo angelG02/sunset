@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use tracing::error;
+use tracing::{error, info};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
@@ -24,6 +24,7 @@ pub struct AssetServer {
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
     pub time_elapsed: f32,
+    pub time_elapsed_fast: f32,
 }
 
 impl AssetServer {
@@ -37,6 +38,7 @@ impl AssetServer {
 
             proxy: None,
             time_elapsed: 0.0,
+            time_elapsed_fast: 0.0,
         }
     }
 
@@ -117,6 +119,15 @@ impl App for AssetServer {
 
                 self.commands.push(cmd);
             }
+            CommandEvent::ChangedAssets(paths) => {
+                info!("{paths:?}");
+                for path in paths {
+                    if let Some(asset) = self.cached_assets.get(path) {
+                        self.changed_assets
+                            .push((path.clone(), asset.asset_type.clone()));
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -124,32 +135,43 @@ impl App for AssetServer {
     fn update(&mut self, delta_time: f32) -> Vec<Command> {
         self.time_elapsed += delta_time;
 
-        if self.time_elapsed > 10.0 {
-            for (path, asset_type) in &self.changed_assets {
-                let asset_type = match asset_type {
-                    AssetType::Material => "material",
-                    AssetType::String => "text",
-                    AssetType::Shader => "shader",
-                    AssetType::Texture => "texture",
-                    AssetType::Mesh => "mesh",
-                    AssetType::Model => "model",
-                    AssetType::Unknown => "idk bruv",
-                };
+        if self.time_elapsed > 1.0 {
+            let task = self.get("get changed");
+            let cmd = Command {
+                app: "asset_server".into(),
+                command_type: CommandType::Get,
+                processed: true,
+                args: None,
+                task,
+            };
 
-                let task = self.get(format!("{} {}", path, asset_type).as_str());
-                let cmd = Command {
-                    app: "asset_server".into(),
-                    command_type: CommandType::Get,
-                    processed: true,
-                    args: None,
-                    task,
-                };
-
-                self.commands.push(cmd);
-            }
-            self.changed_assets.clear();
             self.time_elapsed = 0.0;
+            self.commands.push(cmd);
         }
+
+        for (path, asset_type) in &self.changed_assets {
+            let asset_type = match asset_type {
+                AssetType::Material => "material",
+                AssetType::String => "text",
+                AssetType::Shader => "shader",
+                AssetType::Texture => "texture",
+                AssetType::Mesh => "mesh",
+                AssetType::Model => "model",
+                AssetType::Unknown => "idk bruv",
+            };
+
+            let task = self.get(format!("{} {}", path, asset_type).as_str());
+            let cmd = Command {
+                app: "asset_server".into(),
+                command_type: CommandType::Get,
+                processed: true,
+                args: None,
+                task,
+            };
+
+            self.commands.push(cmd);
+        }
+        self.changed_assets.clear();
 
         self.commands.drain(..).collect()
     }

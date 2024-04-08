@@ -19,6 +19,7 @@ pub enum CommandEvent {
 
     Asset(Asset),
     RequestCreateModel(ModelComponent),
+    ChangedAssets(Vec<String>),
 
     Exit,
     None,
@@ -47,6 +48,9 @@ impl std::fmt::Debug for CommandEvent {
             CommandEvent::None => write!(f, "Event <None>"),
             CommandEvent::RequestCreateModel(model_comp) => {
                 write!(f, "Event <RequestCreateModel> with: {model_comp:?}")
+            }
+            CommandEvent::ChangedAssets(paths) => {
+                write!(f, "Event <ChangedAssets> with: {paths:?}")
             }
         }
     }

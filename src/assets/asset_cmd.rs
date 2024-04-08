@@ -1,4 +1,4 @@
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{
     assets::{Asset, AssetType},
@@ -55,67 +55,125 @@ impl AssetCommand {
             net::TcpStream,
         };
 
-        use tracing::{error, warn};
+        use tracing::warn;
 
         // 127.0.0.1 shader.wgsl shader
         let cmd = move || {
+            let mut events = vec![];
             let args: Vec<&str> = args.split(' ').collect();
-            debug!(
-                "Get Asset {} of type {} from server {}",
-                args[1], args[2], args[0]
-            );
 
-            let asset_type = args[2].to_ascii_lowercase().to_owned();
-            let asset_path = args[1].to_owned();
-            let asset_name = args[1].split('/').last().unwrap().to_owned();
+            if args.contains(&"changed") {
+                match TcpStream::connect(args[0]) {
+                    Ok(mut stream) => {
+                        debug!("Successfully connected to server {}", args[0]);
 
-            debug!("path: {}, name: {}", asset_path, asset_name);
+                        let request = args[1..].join(" ");
 
-            match TcpStream::connect(args[0]) {
-                Ok(mut stream) => {
-                    debug!("Successfully connected to server {}", args[0]);
+                        stream
+                            .write_all(&request.len().to_ne_bytes().to_vec())
+                            .unwrap_or_else(|err| {
+                                error!("Could not write data: {err}");
+                                ()
+                            });
 
-                    let request = format!("get {} {}\r\n\r\n", asset_path, asset_type);
+                        info!("Request size: {}", request.len());
 
-                    stream.write_all(request.as_bytes()).unwrap();
+                        stream.write_all(request.as_bytes()).unwrap();
 
-                    let mut data = Vec::new();
+                        let mut data = Vec::new();
 
-                    stream.read_to_end(&mut data).expect("Could not read data!");
+                        stream.read_to_end(&mut data).unwrap_or(1);
 
-                    let try_convert_string = std::str::from_utf8(&data);
+                        let try_convert_string = std::str::from_utf8(&data);
 
-                    if let Ok(res) = try_convert_string {
-                        if res.contains("File not found") {
-                            error!("File not found: {}", asset_path);
-                            return vec![];
+                        if let Ok(res) = try_convert_string {
+                            let paths: Vec<String> = res
+                                .split(' ')
+                                .into_iter()
+                                .map(|path| path.to_string())
+                                .collect();
+                            events.push(CommandEvent::ChangedAssets(paths));
                         }
+                        events
                     }
-
-                    let asset_type = match asset_type.as_str() {
-                        "shader" => AssetType::Shader,
-                        "string" => AssetType::String,
-                        "texture" => AssetType::Texture,
-                        "model" => AssetType::Model,
-                        "mesh" => AssetType::Mesh,
-                        "material" => AssetType::Material,
-                        _ => {
-                            warn!("Unkown asset type requested: {asset_type:?}");
-                            AssetType::Unknown
-                        }
-                    };
-
-                    vec![CommandEvent::Asset(Asset {
-                        asset_type,
-                        status: AssetStatus::Ready,
-                        data,
-                        name: asset_name,
-                        path: asset_path,
-                    })]
+                    Err(e) => {
+                        println!("Failed to connect: {}", e);
+                        events
+                    }
                 }
-                Err(e) => {
-                    println!("Failed to connect: {}", e);
-                    vec![]
+            } else {
+                debug!(
+                    "Get Asset {} of type {} from server {}",
+                    args[1], args[2], args[0]
+                );
+
+                let asset_type = args[2].to_ascii_lowercase().to_owned();
+                let asset_path = args[1].to_owned();
+                let asset_name = args[1].split('/').last().unwrap().to_owned();
+
+                debug!("path: {}, name: {}", asset_path, asset_name);
+
+                match TcpStream::connect(args[0]) {
+                    Ok(mut stream) => {
+                        debug!("Successfully connected to server {}", args[0]);
+
+                        let request = format!("get {} {}\r\n\r\n", asset_path, asset_type);
+
+                        stream
+                            .write_all(&request.len().to_ne_bytes().to_vec())
+                            .unwrap_or_else(|err| {
+                                error!("Could not write data: {err}");
+                                ()
+                            });
+
+                        info!("Request size: {}", request.len());
+
+                        stream.write_all(request.as_bytes()).unwrap_or_else(|err| {
+                            error!("Could not write data: {err}");
+                            ()
+                        });
+
+                        let mut data = Vec::new();
+
+                        stream.read_to_end(&mut data).unwrap_or_else(|err| {
+                            error!("Could not read data: {err}");
+                            0
+                        });
+
+                        let try_convert_string = std::str::from_utf8(&data);
+
+                        if let Ok(res) = try_convert_string {
+                            if res.contains("File not found") {
+                                error!("File not found: {}", asset_path);
+                                return vec![];
+                            }
+                        }
+
+                        let asset_type = match asset_type.as_str() {
+                            "shader" => AssetType::Shader,
+                            "string" => AssetType::String,
+                            "texture" => AssetType::Texture,
+                            "model" => AssetType::Model,
+                            "mesh" => AssetType::Mesh,
+                            "material" => AssetType::Material,
+                            _ => {
+                                warn!("Unkown asset type requested: {asset_type:?}");
+                                AssetType::Unknown
+                            }
+                        };
+
+                        vec![CommandEvent::Asset(Asset {
+                            asset_type,
+                            status: AssetStatus::Ready,
+                            data,
+                            name: asset_name,
+                            path: asset_path,
+                        })]
+                    }
+                    Err(e) => {
+                        println!("Failed to connect: {}", e);
+                        vec![]
+                    }
                 }
             }
         };
@@ -174,104 +232,151 @@ impl AssetCommand {
     ) -> Option<Task<Vec<CommandEvent>>> {
         let cmd = move || {
             use wasm_bindgen::prelude::*;
-
             // Needs a clone here so the function can become FnMut (otherwise elp will be moved out of the closure by the forgotten server closure below)
             let elp_1 = elp.clone();
             let elp_2 = elp.clone();
 
             let args: Vec<&str> = args.split(' ').collect();
-            debug!("Get Asset {} from server {}", args[1], args[0]);
-
             let addr = args[0];
-            let file_path = args[1];
 
-            let request_type = args[2].to_ascii_lowercase().to_owned();
-            let asset_path = args[1].to_owned();
-            let asset_name = args[1].split('/').last().unwrap().to_owned();
-            let asset_type = match args[2].to_ascii_lowercase().as_str() {
-                "shader" => AssetType::Shader,
-                "string" => AssetType::String,
-                "texture" => AssetType::Texture,
-                "model" => AssetType::Model,
-                "mesh" => AssetType::Mesh,
-                "material" => AssetType::Material,
-                _ => AssetType::Unknown,
-            };
+            if args.contains(&"changed") {
+                let url = format!("{}{}", "wss://", addr);
 
-            let url = format!("{}{}", "wss://", addr);
+                let ws = web_sys::WebSocket::new(url.as_str()).unwrap();
+                let cloned_ws = ws.clone();
 
-            let ws = web_sys::WebSocket::new(url.as_str()).unwrap();
-            let cloned_ws = ws.clone();
-
-            let file_path_copy = file_path.to_owned();
-            let onopen_callback = Closure::<dyn FnMut()>::new(move || {
-                debug!("socket opened");
-                match cloned_ws.send_with_str(
-                    format!("{}{} {}", "get ", file_path_copy, request_type).as_str(),
-                ) {
-                    Ok(_) => debug!("message successfully sent"),
-                    Err(err) => debug!("error sending message: {:?}", err),
-                }
-            });
-            ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-            onopen_callback.forget();
-
-            let onmessage_callback =
-                Closure::<dyn FnMut(_)>::new(move |e: web_sys::MessageEvent| {
-                    if let Ok(blob) = e.data().dyn_into::<web_sys::Blob>() {
-                        let elp_c1 = elp_1.clone();
-                        let asset_type_clone = asset_type.clone();
-                        let asset_name_clone = asset_name.clone();
-                        let asset_path_clone = asset_path.clone();
-                        debug!("message event, received blob: {:?}", blob);
-                        // better alternative to juggling with FileReader is to use https://crates.io/crates/gloo-file
-                        let fr = web_sys::FileReader::new().unwrap();
-                        let fr_c = fr.clone();
-                        // create onLoadEnd callback
-                        let onloadend_cb =
-                            Closure::<dyn FnMut(_)>::new(move |_e: web_sys::ProgressEvent| {
-                                let array = js_sys::Uint8Array::new(&fr_c.result().unwrap());
-                                let _len = array.byte_length() as usize;
-                                // here you can for example use the received image/png data
-
-                                elp_c1
-                                    .clone()
-                                    .send_event(CommandEvent::Asset(Asset {
-                                        asset_type: asset_type_clone.clone(),
-                                        data: array.to_vec(),
-                                        status: AssetStatus::Ready,
-                                        name: asset_name_clone.clone(),
-                                        path: asset_path_clone.clone(),
-                                    }))
-                                    .unwrap();
-                            });
-                        fr.set_onloadend(Some(onloadend_cb.as_ref().unchecked_ref()));
-                        fr.read_as_array_buffer(&blob).expect("blob not readable");
-                        onloadend_cb.forget();
-                    } else if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
-                        //info!("message event, received Text: {:?}", txt);
-                        let data: String = txt.into();
-
-                        elp_2
-                            .send_event(CommandEvent::Asset(Asset {
-                                asset_type: asset_type.clone(),
-                                data: data.into(),
-                                status: AssetStatus::Ready,
-                                name: asset_name.clone(),
-                                path: asset_path.clone(),
-                            }))
-                            .expect("Could not send event T-T");
-                    } else {
-                        debug!("message event, received Unknown: {:?}", e.data());
+                let onopen_callback = Closure::<dyn FnMut()>::new(move || {
+                    debug!("socket opened");
+                    match cloned_ws.send_with_str("get changed") {
+                        Ok(_) => {
+                            //debug!("message successfully sent");
+                        }
+                        Err(err) => error!("error sending message: {:?}", err),
                     }
                 });
-            // set message event handler on WebSocket
-            ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
-            // forget the callback to keep it alive
-            onmessage_callback.forget();
+                ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+                onopen_callback.forget();
 
-            //CommandEvent::FilePending(file_path.to_owned())
-            vec![]
+                let onmessage_callback =
+                    Closure::<dyn FnMut(_)>::new(move |e: web_sys::MessageEvent| {
+                        if let Ok(blob) = e.data().dyn_into::<web_sys::Blob>() {
+                            debug!("message event, received blob: {:?}", blob);
+                        } else if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                            let res: String = txt.into();
+                            let paths: Vec<String> = res
+                                .split(' ')
+                                .into_iter()
+                                .map(|path| path.to_string())
+                                .collect();
+
+                            elp_1
+                                .clone()
+                                .send_event(CommandEvent::ChangedAssets(paths))
+                                .unwrap();
+                        } else {
+                            debug!("message event, received Unknown: {:?}", e.data());
+                        }
+                    });
+                // set message event handler on WebSocket
+                ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
+                // forget the callback to keep it alive
+                onmessage_callback.forget();
+
+                //CommandEvent::FilePending(file_path.to_owned())
+                vec![]
+            } else {
+                debug!("Get Asset {} from server {}", args[1], args[0]);
+
+                let file_path = args[1];
+
+                let request_type = args[2].to_ascii_lowercase().to_owned();
+                let asset_path = args[1].to_owned();
+                let asset_name = args[1].split('/').last().unwrap().to_owned();
+                let asset_type = match args[2].to_ascii_lowercase().as_str() {
+                    "shader" => AssetType::Shader,
+                    "string" => AssetType::String,
+                    "texture" => AssetType::Texture,
+                    "model" => AssetType::Model,
+                    "mesh" => AssetType::Mesh,
+                    "material" => AssetType::Material,
+                    _ => AssetType::Unknown,
+                };
+
+                let url = format!("{}{}", "wss://", addr);
+
+                let ws = web_sys::WebSocket::new(url.as_str()).unwrap();
+                let cloned_ws = ws.clone();
+
+                let file_path_copy = file_path.to_owned();
+                let onopen_callback = Closure::<dyn FnMut()>::new(move || {
+                    debug!("socket opened");
+                    match cloned_ws.send_with_str(
+                        format!("{}{} {}", "get ", file_path_copy, request_type).as_str(),
+                    ) {
+                        Ok(_) => debug!("message successfully sent"),
+                        Err(err) => debug!("error sending message: {:?}", err),
+                    }
+                });
+                ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+                onopen_callback.forget();
+
+                let onmessage_callback =
+                    Closure::<dyn FnMut(_)>::new(move |e: web_sys::MessageEvent| {
+                        if let Ok(blob) = e.data().dyn_into::<web_sys::Blob>() {
+                            let elp_c1 = elp_1.clone();
+                            let asset_type_clone = asset_type.clone();
+                            let asset_name_clone = asset_name.clone();
+                            let asset_path_clone = asset_path.clone();
+                            debug!("message event, received blob: {:?}", blob);
+                            // better alternative to juggling with FileReader is to use https://crates.io/crates/gloo-file
+                            let fr = web_sys::FileReader::new().unwrap();
+                            let fr_c = fr.clone();
+                            // create onLoadEnd callback
+                            let onloadend_cb =
+                                Closure::<dyn FnMut(_)>::new(move |_e: web_sys::ProgressEvent| {
+                                    let array = js_sys::Uint8Array::new(&fr_c.result().unwrap());
+                                    let _len = array.byte_length() as usize;
+                                    // here you can for example use the received image/png data
+
+                                    elp_c1
+                                        .clone()
+                                        .send_event(CommandEvent::Asset(Asset {
+                                            asset_type: asset_type_clone.clone(),
+                                            data: array.to_vec(),
+                                            status: AssetStatus::Ready,
+                                            name: asset_name_clone.clone(),
+                                            path: asset_path_clone.clone(),
+                                        }))
+                                        .unwrap();
+                                });
+                            fr.set_onloadend(Some(onloadend_cb.as_ref().unchecked_ref()));
+                            fr.read_as_array_buffer(&blob).expect("blob not readable");
+                            onloadend_cb.forget();
+                        } else if let Ok(txt) = e.data().dyn_into::<js_sys::JsString>() {
+                            //info!("message event, received Text: {:?}", txt);
+                            let data: String = txt.into();
+
+                            elp_2
+                                .send_event(CommandEvent::Asset(Asset {
+                                    asset_type: asset_type.clone(),
+                                    data: data.into(),
+                                    status: AssetStatus::Ready,
+                                    name: asset_name.clone(),
+                                    path: asset_path.clone(),
+                                }))
+                                .expect("Could not send event T-T");
+                        } else {
+                            debug!("message event, received Unknown: {:?}", e.data());
+                        }
+                    });
+                // set message event handler on WebSocket
+                ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
+                // forget the callback to keep it alive
+                onmessage_callback.forget();
+
+                //CommandEvent::FilePending(file_path.to_owned())
+                vec![]
+            }
         };
 
         Some(Box::new(cmd))
