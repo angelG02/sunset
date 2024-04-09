@@ -135,7 +135,7 @@ impl App for AssetServer {
     fn update(&mut self, delta_time: f32) -> Vec<Command> {
         self.time_elapsed += delta_time;
 
-        if self.time_elapsed > 10000.0 {
+        if self.time_elapsed > 1.0 {
             let task = self.get("get changed");
             let cmd = Command {
                 app: "asset_server".into(),
