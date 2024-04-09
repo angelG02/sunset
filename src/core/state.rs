@@ -245,8 +245,16 @@ pub async fn run() {
             // Calculate frame time (delta time)
             let new_time = web_time::Instant::now();
             let frame_time = (new_time - current_time).as_nanos();
-            let delta_time = frame_time as f32 * 0.000000001;
+            #[allow(unused_mut)]    
+            let mut delta_time = frame_time as f32 * 0.000000001;
             current_time = new_time;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                if delta_time < 0.0001 {
+                    delta_time = 0.0001;
+                }
+            }
 
             //info!("{frame_time}ms");
 
