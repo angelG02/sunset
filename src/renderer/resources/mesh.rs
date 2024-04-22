@@ -170,6 +170,7 @@ impl SunMesh {
                 // Material creation
                 use gltf::image::*;
 
+                // If texture images and buffers are present, create gpu views and samplers from them
                 if let Some(base_color_texture_info) = primitive
                     .material()
                     .pbr_metallic_roughness()
@@ -235,6 +236,7 @@ impl SunMesh {
                         }
                     }
                 } else {
+                    // Otherwise, create 1x1 views and samplers from the base color factor
                     let base_color_factor = primitive
                         .material()
                         .pbr_metallic_roughness()
@@ -316,8 +318,8 @@ impl SunMesh {
             meshes.push(mesh);
         }
         for child in node.children() {
-            // Order matters! since we apply the one on the right first, if the one on the left is not in global space or vice verse, the
-            // transformations will be bizzare!
+            // Order matters! The transform sapce is determined by the left-most transform
+            // The order then is from right to left
 
             // Parent * Child
             let parent_trans: cgmath::Matrix4<f32> =

@@ -13,7 +13,8 @@ pub fn default_apps() -> Vec<(String, Box<dyn App>)> {
 
     // Asset server for web requests
     #[cfg(target_arch = "wasm32")]
-    let asset_server = crate::assets::asset_server::AssetServer::new("angel-sunset.app".into());
+    let asset_server =
+        crate::assets::asset_server::AssetServer::new("as-wss.angel-sunset.app".into());
 
     vec![
         ("windower".into(), Box::new(windower)),

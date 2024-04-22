@@ -117,7 +117,7 @@ impl AssetCommand {
                     Ok(mut stream) => {
                         debug!("Successfully connected to server {}", args[0]);
 
-                        let request = format!("get {} {}\r\n\r\n", asset_path, asset_type);
+                        let request = format!("get {} {}", asset_path, asset_type);
 
                         stream
                             .write_all(&request.len().to_ne_bytes().to_vec())

@@ -440,13 +440,9 @@ impl App for Scene {
         for obj in objects {
             if let Some(mut transform) = self.world.get_mut::<TransformComponent>(obj) {
                 if self.obj_should_rotate {
-                    let _new_rot_x = cgmath::Quaternion::<f32>::from_angle_x(cgmath::Rad(
-                        self.mouse_delta_y * self.rotation_speed * delta_time,
-                    ));
                     let new_rot_y = cgmath::Quaternion::<f32>::from_angle_y(cgmath::Rad(
                         self.mouse_delta_x * self.rotation_speed * delta_time,
                     ));
-                    //transform.rotation = transform.rotation * new_rot_x;
                     transform.rotation = transform.rotation * new_rot_y;
                     transform.dirty = true;
                 }
