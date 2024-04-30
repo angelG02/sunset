@@ -120,7 +120,7 @@ impl App for AssetServer {
                 self.commands.push(cmd);
             }
             CommandEvent::ChangedAssets(paths) => {
-                info!("{paths:?}");
+                info!("Changed asset: {paths:?}");
                 for path in paths {
                     if let Some(asset) = self.cached_assets.get(path) {
                         self.changed_assets
