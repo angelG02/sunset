@@ -192,7 +192,7 @@ impl SunMesh {
                             };
 
                             let diffuse_texture = SunTexture::from_bytes(
-                                Some("Diffuse Texture"),
+                                "Diffuse Texture",
                                 device,
                                 queue,
                                 data,
@@ -243,7 +243,7 @@ impl SunMesh {
                         .base_color_factor();
 
                     let diffuse_texture = SunTexture::from_color(
-                        Some("Diffuse Texture"),
+                        "Diffuse Texture",
                         device,
                         queue,
                         &base_color_factor,

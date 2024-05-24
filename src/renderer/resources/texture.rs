@@ -8,30 +8,38 @@ pub struct SunTexture {
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 
+    // TODO (A40): Sepatate Image from Texture
+    pub data: Vec<u8>,
+    pub format: wgpu::TextureFormat,
+    pub size: wgpu::Extent3d,
+
     pub name: String,
     pub uuid: uuid::Uuid,
 }
 
 impl SunTexture {
     pub fn from_bytes(
-        label: Option<&str>,
+        label: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bytes: &[u8],
         format: ImageFormat,
     ) -> Result<Self> {
         let img = image::load_from_memory_with_format(bytes, format)?;
-        Self::from_image(device, queue, &img, label)
+        Self::from_image(label, device, queue, &img)
     }
 
     pub fn from_image(
+        label: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         img: &image::DynamicImage,
-        label: Option<&str>,
     ) -> Result<Self> {
         let rgba = img.to_rgba8();
         let dimensions = img.dimensions();
+
+        // NOTE (A40): This might be an incorrect assumption for some imaeg formats (like jpeg)
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
 
         let size = wgpu::Extent3d {
             width: dimensions.0,
@@ -39,12 +47,12 @@ impl SunTexture {
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label,
+            label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -81,12 +89,15 @@ impl SunTexture {
             view,
             sampler,
             uuid: uuid::Uuid::new_v4(),
-            name: label.unwrap().to_owned(),
+            name: label.to_owned(),
+            size,
+            format,
+            data: rgba.to_vec(),
         })
     }
 
     pub fn from_color(
-        label: Option<&str>,
+        label: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color: &[f32; 4],
@@ -97,18 +108,21 @@ impl SunTexture {
         let a = (color[3] * 255.0).round() as u8;
         let rgba = RgbaImage::from_pixel(1, 1, Rgba([r, g, b, a]));
 
+        // NOTE (A40): This might be an incorrect assumption for some imaeg formats (like jpeg)
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+
         let size = wgpu::Extent3d {
             width: 1,
             height: 1,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label,
+            label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -145,7 +159,10 @@ impl SunTexture {
             view,
             sampler,
             uuid: uuid::Uuid::new_v4(),
-            name: label.unwrap().to_owned(),
+            name: label.to_owned(),
+            size,
+            format,
+            data: rgba.to_vec(),
         }
     }
 
@@ -172,10 +189,11 @@ impl SunTexture {
         };
 
         let texture = device.create_texture(&desc);
+        let format = wgpu::TextureFormat::Depth32FloatStencil8;
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("depth_texture_view"),
-            format: Some(wgpu::TextureFormat::Depth32FloatStencil8),
+            format: Some(format),
             dimension: Some(wgpu::TextureViewDimension::D2),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
@@ -203,6 +221,9 @@ impl SunTexture {
             sampler,
             name: label.to_string(),
             uuid: uuid::Uuid::new_v4(),
+            size,
+            format,
+            data: Vec::new(),
         }
     }
 }

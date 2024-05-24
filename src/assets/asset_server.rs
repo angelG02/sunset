@@ -172,6 +172,7 @@ impl App for AssetServer {
                 AssetType::String => "text",
                 AssetType::Shader => "shader",
                 AssetType::Texture => "texture",
+                AssetType::Font => "font",
                 AssetType::Mesh => "mesh",
                 AssetType::Model => "model",
                 AssetType::Unknown => "idk bruv",

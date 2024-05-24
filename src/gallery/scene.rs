@@ -261,6 +261,13 @@ impl App for Scene {
             None,
         );
 
+        let load_font = Command::new(
+            "asset_server",
+            CommandType::Get,
+            Some("get fonts/OpenSans-Regular.ttf font".into()),
+            None,
+        );
+
         let load_basic_cube = Command::new(
             "default_scene",
             CommandType::Get,
@@ -283,8 +290,12 @@ impl App for Scene {
             None,
         );
 
-        self.commands
-            .append(&mut vec![load_missing_tex, load_basic_cube, load_camera_2d]);
+        self.commands.append(&mut vec![
+            load_missing_tex,
+            load_basic_cube,
+            load_camera_2d,
+            load_font,
+        ]);
     }
 
     async fn process_command(&mut self, cmd: Command) {

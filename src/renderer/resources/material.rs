@@ -23,7 +23,7 @@ impl SunMaterial {
         bind_group_layout: &BindGroupLayout,
     ) -> anyhow::Result<SunMaterial> {
         let diffuse_texture =
-            SunTexture::from_bytes(Some("Diffuse Texture"), device, queue, data, format)?;
+            SunTexture::from_bytes("Diffuse Texture", device, queue, data, format)?;
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,

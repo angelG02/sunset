@@ -24,8 +24,19 @@ bevy_ecs = "0.13.0"
 bytemuck = "1.14.0"
 image = "0.25.0"
 anyhow = "1.0"
+thiserror = "1.0"
 cgmath = "0.18.0"
 gltf = "1.4.0"
+bitflags = "2.5.0"
+
+# fdsm requires 0.20
+ttf-parser = "0.20.0"
+# again... fdsm requires nalgebra
+nalgebra = "0.32.5"
+fdsm = {version = "0.4.0", features = ["ttf-parser"]}
+# atlas packer
+rectangle-pack = "0.4.2"
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "1.6.1", features = [

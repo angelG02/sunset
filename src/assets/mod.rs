@@ -15,6 +15,7 @@ pub enum AssetType {
     String,
     Shader,
     Texture,
+    Font,
     Mesh,
     Material,
     Model,

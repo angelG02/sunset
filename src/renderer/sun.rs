@@ -22,6 +22,7 @@ use super::{
     buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
     resources::{
+        font::SunFont,
         model::{DrawModel, RenderModelDesc, SunModel},
         texture::SunTexture,
     },
@@ -41,6 +42,7 @@ pub struct Sun {
     pub mvp_bindgroup: Option<wgpu::BindGroup>,
 
     pub models: HashMap<String, SunModel>,
+    pub fonts: HashMap<String, SunFont>,
 
     commands: Vec<Command>,
 
@@ -291,6 +293,7 @@ impl Default for Sun {
             mvp_bindgroup: None,
 
             models: HashMap::new(),
+            fonts: HashMap::new(),
 
             commands: vec![],
 
@@ -352,6 +355,18 @@ impl App for Sun {
                     return;
                 }
                 match asset.asset_type {
+                    AssetType::Font => {
+                        let font = SunFont::from_font_bytes(&asset.name, &asset.data);
+                        match font {
+                            Ok(font) => {
+                                info!("Successfully created font: {}", font.font_file);
+                                self.fonts.insert(font.font_file.clone(), font);
+                            }
+                            Err(err) => {
+                                error!("{err}");
+                            }
+                        }
+                    }
                     AssetType::Shader => {
                         self.shaders.insert(asset.name.clone(), asset.clone());
                     }
