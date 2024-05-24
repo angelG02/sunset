@@ -184,9 +184,9 @@ impl AssetCommand {
     pub fn get_local(args: String) -> Option<Task<Vec<CommandEvent>>> {
         let cmd = move || {
             let args: Vec<&str> = args.split(' ').collect();
-            let asset_type = args[2].to_ascii_lowercase().to_owned();
-            let asset_path = args[1].to_owned();
-            let asset_name = args[1].split('/').last().unwrap().to_owned();
+            let asset_type = args[1].to_ascii_lowercase().to_owned();
+            let asset_path = args[0].to_owned();
+            let asset_name = args[0].split('/').last().unwrap().to_owned();
 
             let asset_type = match asset_type.as_str() {
                 "shader" => AssetType::Shader,

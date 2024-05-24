@@ -15,8 +15,13 @@ use crate::{
 
 use super::{asset_cmd::AssetCommand, Asset, AssetStatus, AssetType};
 
+#[derive(PartialEq, Debug)]
+enum ServerMode {
+    Local,
+    Server(String),
+}
+
 pub struct AssetServer {
-    pub server_addr: String,
     pub commands: Vec<Command>,
 
     pub cached_assets: HashMap<String, Asset>,
@@ -25,12 +30,19 @@ pub struct AssetServer {
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
     pub time_elapsed: f32,
     pub time_elapsed_fast: f32,
+
+    mode: ServerMode,
 }
 
 impl AssetServer {
     pub fn new(addr: String) -> Self {
+        let cmd_args: Vec<String> = std::env::args().collect();
+        let mut mode = ServerMode::Server(addr);
+        if cmd_args.contains(&"local".to_string()) {
+            mode = ServerMode::Local;
+        }
+
         AssetServer {
-            server_addr: addr,
             commands: vec![],
 
             cached_assets: HashMap::new(),
@@ -39,6 +51,7 @@ impl AssetServer {
             proxy: None,
             time_elapsed: 0.0,
             time_elapsed_fast: 0.0,
+            mode,
         }
     }
 
@@ -67,15 +80,17 @@ impl AssetServer {
             return None;
         }
 
-        let args = format!("{} {} {}", self.server_addr, vec_args[0], vec_args[1]);
+        match &self.mode {
+            ServerMode::Local => {
+                let args = format!("{} {}", vec_args[0], vec_args[1]);
 
-        let cmd_args: Vec<String> = std::env::args().collect();
-
-        if cmd_args.contains(&"local".to_string()) {
-            return AssetCommand::get_local(args);
+                return AssetCommand::get_local(args);
+            }
+            ServerMode::Server(addr) => {
+                let args = format!("{} {} {}", addr, vec_args[0], vec_args[1]);
+                return AssetCommand::get_from_server(args, self.proxy.clone().unwrap());
+            }
         }
-
-        AssetCommand::get_from_server(args, self.proxy.clone().unwrap())
     }
 }
 
@@ -136,17 +151,19 @@ impl App for AssetServer {
         self.time_elapsed += delta_time;
 
         if self.time_elapsed > 10.0 {
-            let task = self.get("get changed");
-            let cmd = Command {
-                app: "asset_server".into(),
-                command_type: CommandType::Get,
-                processed: true,
-                args: None,
-                task,
-            };
+            if self.mode != ServerMode::Local {
+                let task = self.get("get changed");
+                let cmd = Command {
+                    app: "asset_server".into(),
+                    command_type: CommandType::Get,
+                    processed: true,
+                    args: None,
+                    task,
+                };
 
-            self.time_elapsed = 0.0;
-            self.commands.push(cmd);
+                self.time_elapsed = 0.0;
+                self.commands.push(cmd);
+            }
         }
 
         for (path, asset_type) in &self.changed_assets {
