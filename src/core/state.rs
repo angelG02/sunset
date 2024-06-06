@@ -217,7 +217,7 @@ pub async fn run() {
         let builder = std::thread::Builder::new().name("CLI".into());
 
         let runtime_cli = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(8)
             .build()
             .unwrap();
 

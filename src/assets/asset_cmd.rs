@@ -313,10 +313,9 @@ impl AssetCommand {
                 let file_path_copy = file_path.to_owned();
                 let onopen_callback = Closure::<dyn FnMut()>::new(move || {
                     //debug!("socket opened");
-                    match cloned_ws.send_with_str(
-                        format!("{}{} {}", "get ", file_path_copy, request_type).as_str(),
-                    ) {
-                        Ok(_) => debug!("message successfully sent"),
+                    let msg = format!("{}{} {}", "get ", file_path_copy, request_type);
+                    match cloned_ws.send_with_str(msg.as_str()) {
+                        Ok(_) => debug!("message successfully sent: {msg}"),
                         Err(err) => debug!("error sending message: {:?}", err),
                     }
                 });

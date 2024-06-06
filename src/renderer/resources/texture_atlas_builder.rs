@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use cgmath::{Vector2, Zero};
 use rectangle_pack::{
@@ -29,7 +29,7 @@ pub enum TextureAtlasBuilderError {
 /// sprites.
 pub struct TextureAtlasBuilder {
     /// Collection of texture's asset id (optional) and image data to be packed into an atlas
-    pub textures_to_place: Vec<(Option<u16>, Image)>,
+    pub textures_to_place: Vec<(Option<u16>, Arc<Image>)>,
     /// The initial atlas size in pixels.
     pub initial_size: Vector2<u32>,
     /// The absolute maximum size of the texture atlas in pixels.
@@ -86,7 +86,7 @@ impl TextureAtlasBuilder {
     ///
     /// Optionally an asset id can be passed that can later be used with the texture layout to retrieve the index of this texture.
     /// The insertion order will reflect the index of the added texture in the finished texture atlas.
-    pub fn add_texture(&mut self, image_id: Option<u16>, texture: Image) {
+    pub fn add_texture(&mut self, image_id: Option<u16>, texture: Arc<Image>) {
         self.textures_to_place.push((image_id, texture));
     }
 

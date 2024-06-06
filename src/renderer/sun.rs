@@ -356,7 +356,7 @@ impl App for Sun {
                 }
                 match asset.asset_type {
                     AssetType::Font => {
-                        let font = SunFont::from_font_bytes(&asset.name, &asset.data);
+                        let font = SunFont::from_font_bytes(&asset.name, &asset.data).await;
                         match font {
                             Ok(font) => {
                                 info!("Successfully created font: {}", font.font_file);
