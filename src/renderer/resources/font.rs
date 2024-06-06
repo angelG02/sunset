@@ -66,8 +66,6 @@ impl SunFont {
         let mut glyph_index = 0;
         let expected_glyphs = glyphs.len() as u32;
 
-        info!("{expected_glyphs}");
-
         // For each glyph clone the shape dataand create a task that can be Sent between threads
         // clone an image sender to send an image whenever the task finishes
         for glyph_id in glyphs {
@@ -133,8 +131,8 @@ impl SunFont {
         bbox: Rect,
         glyph_id: GlyphId,
         image_sender: Sender<(u16, Arc<Image>)>,
-        glyph_index: u32,
-        expected_glyphs: u32,
+        _glyph_index: u32,
+        _expected_glyphs: u32,
     ) {
         // Prepare your transformation matrix and calculate the dimensions of
         // the resulting signed distance field. As an example, we set this up
@@ -194,7 +192,8 @@ impl SunFont {
                 ()
             });
 
-        if glyph_index >= expected_glyphs - 1 {
+        #[cfg(target_arch = "wasm32")]
+        if _glyph_index >= _expected_glyphs - 1 {
             image_sender.close();
         }
     }

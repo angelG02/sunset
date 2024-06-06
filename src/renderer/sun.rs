@@ -118,6 +118,8 @@ impl Sun {
         win_id: winit::window::WindowId,
         name: String,
         shader_src: impl AsRef<str>,
+        vertex_entry_fn_name: impl AsRef<str>,
+        fragment_entry_fn_name: impl AsRef<str>,
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
         bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
         topology: wgpu::PrimitiveTopology,
@@ -127,6 +129,8 @@ impl Sun {
             self.viewports.get(&win_id).unwrap(),
             name.clone(),
             shader_src,
+            vertex_entry_fn_name,
+            fragment_entry_fn_name,
             vertex_buffer_layouts,
             bind_group_layout_descs,
             topology,
@@ -343,6 +347,8 @@ impl App for Sun {
                     pipe_desc.win_id,
                     pipe_desc.name,
                     pipe_desc.shader_src,
+                    pipe_desc.vertex_entry_fn_name,
+                    pipe_desc.fragment_entry_fn_name,
                     &pipe_desc.vertex_buffer_layouts,
                     pipe_desc.bind_group_layout_desc,
                     pipe_desc.topology,
@@ -434,6 +440,7 @@ impl App for Sun {
 
             WindowEvent::RedrawRequested => {
                 for (name, shader) in &self.shaders {
+                    // Create model and text pipeline from a received shader
                     if !self.pipelines.contains_key(name) {
                         let basic_tex_bg_layout_desc = wgpu::BindGroupLayoutDescriptor {
                             label: Some("Diffuse Texture Bind Group"),
@@ -477,29 +484,42 @@ impl App for Sun {
                             label: Some("Camera Bind Group Layout"),
                         };
 
+                        // Model pipeline
                         let pipe_desc = PipelineDesc {
                             name: name.clone(),
                             win_id: window_id,
                             shader_src: String::from_utf8(shader.data.clone()).unwrap(),
+                            vertex_entry_fn_name: "vs_main".to_string(),
+                            fragment_entry_fn_name: "fs_main".to_string(),
                             vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
-                            topology: if name.contains("line") {
-                                wgpu::PrimitiveTopology::LineList
-                            } else {
-                                wgpu::PrimitiveTopology::TriangleList
-                            },
-                            bind_group_layout_desc: if name.contains("line") {
-                                vec![]
-                            } else {
-                                vec![
-                                    camera_bg_layout_desc.clone(),
-                                    basic_tex_bg_layout_desc.clone(),
-                                ]
-                            },
-                            bind_group_layout_name: if name.contains("line") {
-                                vec![]
-                            } else {
-                                vec!["camera".into(), "diffuse".into()]
-                            },
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            bind_group_layout_desc: vec![
+                                camera_bg_layout_desc.clone(),
+                                basic_tex_bg_layout_desc.clone(),
+                            ],
+                            bind_group_layout_name: vec!["camera".into(), "diffuse".into()],
+                        };
+
+                        self.proxy
+                            .as_ref()
+                            .unwrap()
+                            .send_event(CommandEvent::RequestPipeline(pipe_desc))
+                            .unwrap();
+
+                        // Text pipeline
+                        let pipe_desc = PipelineDesc {
+                            name: "text_shader.wgsl".to_string(),
+                            win_id: window_id,
+                            shader_src: String::from_utf8(shader.data.clone()).unwrap(),
+                            vertex_entry_fn_name: "vs_main".to_string(),
+                            fragment_entry_fn_name: "fs_text".to_string(),
+                            vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            bind_group_layout_desc: vec![
+                                camera_bg_layout_desc.clone(),
+                                basic_tex_bg_layout_desc.clone(),
+                            ],
+                            bind_group_layout_name: vec!["camera".into(), "diffuse".into()],
                         };
 
                         self.proxy

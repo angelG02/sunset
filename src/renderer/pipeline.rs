@@ -12,6 +12,8 @@ pub struct PipelineDesc {
     pub name: String,
     pub win_id: winit::window::WindowId,
     pub shader_src: String,
+    pub vertex_entry_fn_name: String,
+    pub fragment_entry_fn_name: String,
     pub vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
     pub bind_group_layout_desc: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
     pub bind_group_layout_name: Vec<String>,
@@ -36,6 +38,8 @@ impl SunPipeline {
         viewport: &Viewport,
         name: String,
         shader_src: impl AsRef<str>,
+        vertex_entry_fn_name: impl AsRef<str>,
+        fragment_entry_fn_name: impl AsRef<str>,
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
         bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
         topology: wgpu::PrimitiveTopology,
@@ -84,12 +88,12 @@ impl SunPipeline {
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: vertex_entry_fn_name.as_ref(),
                 buffers: vertex_buffer_layouts,
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: fragment_entry_fn_name.as_ref(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: viewport.get_config().format,
                     blend: Some(wgpu::BlendState::REPLACE),
