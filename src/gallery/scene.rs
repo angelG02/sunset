@@ -4,7 +4,7 @@ use bevy_ecs::{
     entity::Entity,
     query::{QueryFilter, With},
 };
-use cgmath::Rotation3;
+use cgmath::{Rotation3, Vector4};
 use tracing::{error, info, warn};
 use winit::{
     event::{ElementState, MouseScrollDelta},
@@ -26,10 +26,13 @@ use crate::{
         name_component::NameComponent,
     },
     prelude::{
-        camera_component::CamType, resources::model::RenderModelDesc,
+        camera_component::CamType,
+        resources::model::RenderModelDesc,
+        state,
+        sun::RenderFrameDesc,
+        text_component::{RenderTextDesc, TextComponent},
         transform_component::TransformComponent,
     },
-    renderer::primitive::Primitive,
 };
 
 #[derive(Default)]
@@ -212,41 +215,17 @@ impl Scene {
         Some(Box::new(task))
     }
 
-    pub fn remove_entity(&mut self, name: &str) -> Option<Task<Vec<CommandEvent>>> {
-        let entitis = self.query_world::<With<NameComponent>>();
+    pub fn remove_entity(&mut self, _name: &str) -> Option<Task<Vec<CommandEvent>>> {
+        let _entitis = self.query_world::<With<NameComponent>>();
 
-        let mut events = Vec::new();
-
-        for entity in entitis {
-            let mut flag = false;
-            if self.world.get::<NameComponent>(entity).unwrap().name == name {
-                if let Some(prim) = self.world.get::<Primitive>(entity) {
-                    events.push(CommandEvent::RequestDestroyBuffer(prim.uuid));
-                }
-                flag = true;
-            }
-
-            if flag {
-                self.world.despawn(entity);
-            }
-        }
+        let events = Vec::new();
 
         let task = move || events.clone();
 
         Some(Box::new(task))
     }
 
-    pub fn cleanup(&mut self) {
-        let mut primitives_from_scene = self.world.query::<&Primitive>();
-
-        for primitive in primitives_from_scene.iter(&self.world) {
-            self.proxy
-                .as_ref()
-                .unwrap()
-                .send_event(CommandEvent::RequestDestroyBuffer(primitive.uuid))
-                .unwrap();
-        }
-    }
+    pub fn cleanup(&mut self) {}
 }
 
 #[async_trait(?Send)]
@@ -274,15 +253,7 @@ impl App for Scene {
         let load_basic_cube = Command::new(
             "default_scene",
             CommandType::Get,
-            //Some("add --name Cube --model models/test/big-test.glb".into()),
             Some("add --name Cube --model models/test/duck.glb".into()),
-            //Some("add --name Cube --model models/avocado/Avocado.glb".into()),
-            //Some("add --name Cube --model models/deivche/Cartoon_house.glb".into()),
-            //Some("add --name Cube --model models/gltf-samples/Buggy/glTF-Binary/Buggy.glb".into()),
-            // Some(
-            //     "add --name Cube --model models/gltf-samples/2CylinderEngine/2CylinderEngine.glb"
-            //         .into(),
-            // ),
             None,
         );
 
@@ -292,6 +263,21 @@ impl App for Scene {
             Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 4 0.0001 1000".into()),
             None,
         );
+
+        // Manully spawn entity with text for test
+
+        let mut text_transform = TransformComponent::zero();
+        text_transform.scale.x += 150.0;
+        text_transform.scale.y += 150.0;
+        text_transform.translation.x += 50.0;
+        text_transform.translation.y += 160.0;
+
+        let text = TextComponent {
+            text: "Шо стааа Генкатах е тукаааааааа".to_string(),
+            color: Vector4::new(1.0, 1.0, 1.0, 1.0),
+            ..Default::default()
+        };
+        self.world.spawn_empty().insert((text_transform, text));
 
         self.commands.append(&mut vec![
             load_missing_tex,
@@ -314,6 +300,55 @@ impl App for Scene {
         }
     }
 
+    async fn process_user_event(
+        &mut self,
+        event: &crate::core::events::CommandEvent,
+        _delta_time: f32,
+    ) {
+        match event {
+            CommandEvent::SignalChange((entity, component)) => {
+                if *entity == Entity::PLACEHOLDER {
+                    return;
+                }
+
+                if let Some(change_state) = component {
+                    // Replace or spawn component of the requested type on the provided entity
+                    match change_state {
+                        // Replace/Add Text
+                        crate::prelude::ChangeComponentState::Text(changed_text) => {
+                            if let Some(mut text) = self.world.get_mut::<TextComponent>(*entity) {
+                                *text = changed_text.clone();
+                            } else {
+                                self.world.entity_mut(*entity).insert(changed_text.clone());
+                            }
+                        }
+                        // Replace/Add Transform
+                        crate::prelude::ChangeComponentState::Transform(changed_transform) => {
+                            if let Some(mut transform) =
+                                self.world.get_mut::<TransformComponent>(*entity)
+                            {
+                                *transform = changed_transform.clone();
+                            } else {
+                                self.world
+                                    .entity_mut(*entity)
+                                    .insert(changed_transform.clone());
+                            }
+                        }
+                        // Replace/Add Model
+                        crate::prelude::ChangeComponentState::Model(changed_model) => {
+                            if let Some(mut model) = self.world.get_mut::<ModelComponent>(*entity) {
+                                *model = changed_model.clone();
+                            } else {
+                                self.world.entity_mut(*entity).insert(changed_model.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     async fn process_window_event(
         &mut self,
         event: &winit::event::WindowEvent,
@@ -322,14 +357,17 @@ impl App for Scene {
     ) {
         match event {
             winit::event::WindowEvent::RedrawRequested => {
+                // Gather models and their transfroms from the scene
                 let mut models_from_scene =
                     self.world.query::<(&ModelComponent, &TransformComponent)>();
+
                 let mut models = vec![];
 
                 for (model, transform) in models_from_scene.iter(&self.world) {
                     models.push((model.clone(), transform.clone()));
                 }
 
+                // Get active camera for the current scene
                 let active_cams = self.query_world::<With<ActiveCameraComponent>>();
 
                 let active_cam: CameraComponent = if active_cams.len() > 0 {
@@ -343,16 +381,36 @@ impl App for Scene {
                     CameraComponent::default()
                 };
 
-                let render_desc = RenderModelDesc {
-                    models,
-                    active_camera: active_cam,
+                // Gether text and their transforms from the scene
+                let mut text_from_scene =
+                    self.world
+                        .query::<(Entity, &mut TextComponent, &TransformComponent)>();
+
+                let mut texts = vec![];
+
+                for (e, text, transform) in text_from_scene.iter(&self.world) {
+                    // info!("{text:?}");
+                    texts.push((e, text.clone(), transform.clone()));
+                }
+
+                // Create and send the render data (models + text for now)
+                let render_desc = RenderFrameDesc {
+                    model_desc: RenderModelDesc {
+                        models,
+                        active_camera: active_cam,
+                    },
+                    text_desc: RenderTextDesc { texts },
                     window_id,
                 };
                 self.proxy
                     .as_ref()
                     .unwrap()
-                    .send_event(CommandEvent::RenderModel(render_desc))
+                    .send_event(CommandEvent::RenderFrame(render_desc))
                     .unwrap();
+
+                if !state::initialized() {
+                    return;
+                }
             }
 
             // TODO (@A40): Move this functionality into a system that reads window events and mutates the cam components

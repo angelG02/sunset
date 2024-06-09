@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use bevy_ecs::entity::Entity;
+
 use crate::prelude::{
-    buffer::BufferDesc, model_component::ModelComponent, pipeline::PipelineDesc,
-    resources::model::RenderModelDesc, windower::NewWindowProps, Asset,
+    model_component::ModelComponent, pipeline::PipelineDesc, sun::RenderFrameDesc,
+    windower::NewWindowProps, Asset, ChangeComponentState,
 };
 
 #[derive(Clone, bevy_ecs::event::Event)]
@@ -13,13 +15,14 @@ pub enum CommandEvent {
     OnWindowCreated(Arc<winit::window::Window>),
 
     RequestPipeline(PipelineDesc),
-    RequestCreateBuffer(BufferDesc),
     RequestDestroyBuffer(uuid::Uuid),
-    RenderModel(RenderModelDesc),
+    RenderFrame(RenderFrameDesc),
 
     Asset(Asset),
     RequestCreateModel(ModelComponent),
     ChangedAssets(Vec<String>),
+
+    SignalChange((Entity, Option<ChangeComponentState>)),
 
     Exit,
     None,
@@ -36,13 +39,10 @@ impl std::fmt::Debug for CommandEvent {
             CommandEvent::RequestPipeline(props) => {
                 write!(f, "Event <RequestPipeline> with: {props:?}")
             }
-            CommandEvent::RequestCreateBuffer(desc) => {
-                write!(f, "Event <RequestCreateBuffer> with: {desc:?}")
-            }
             CommandEvent::RequestDestroyBuffer(id) => {
                 write!(f, "Event <RequestCreateBuffer> with: {id:?}")
             }
-            CommandEvent::RenderModel(_) => write!(f, "Event <RenderModel>"),
+            CommandEvent::RenderFrame(_) => write!(f, "Event <RenderFrame>"),
             CommandEvent::Asset(asset) => write!(f, "Event <Asset> with: {asset:?}"),
             CommandEvent::Exit => write!(f, "Event <Exit>"),
             CommandEvent::None => write!(f, "Event <None>"),
@@ -51,6 +51,9 @@ impl std::fmt::Debug for CommandEvent {
             }
             CommandEvent::ChangedAssets(paths) => {
                 write!(f, "Event <ChangedAssets> with: {paths:?}")
+            }
+            CommandEvent::SignalChange(e) => {
+                write!(f, "Event <SignalChange> with: {e:?}")
             }
         }
     }

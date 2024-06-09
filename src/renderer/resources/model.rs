@@ -21,7 +21,6 @@ use tracing::error;
 pub struct RenderModelDesc {
     pub models: Vec<(ModelComponent, TransformComponent)>,
     pub active_camera: CameraComponent,
-    pub window_id: winit::window::WindowId,
 }
 
 #[derive(Debug)]

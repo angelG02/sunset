@@ -1,6 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
+use bevy_ecs::entity::Entity;
+use cgmath::Vector2;
 use tracing::{error, info};
 use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 
@@ -9,9 +11,12 @@ use crate::{
     prelude::{
         camera_component::{CameraComponent, ModelUniform},
         command_queue::CommandType,
+        primitive::Primitive,
+        resources::rect::Rect,
         state,
+        text_component::{RenderTextDesc, TextComponent},
         transform_component::TransformComponent,
-        Asset, AssetStatus, AssetType,
+        Asset, AssetStatus, AssetType, ChangeComponentState,
     },
 };
 
@@ -21,12 +26,20 @@ pub type PrimitiveID = uuid::Uuid;
 use super::{
     buffer::SunBuffer,
     pipeline::{PipelineDesc, SunPipeline},
+    primitive::{Render2D, VertexExt},
     resources::{
         font::SunFont,
         model::{DrawModel, RenderModelDesc, SunModel},
         texture::SunTexture,
     },
 };
+
+#[derive(Debug, Clone)]
+pub struct RenderFrameDesc {
+    pub model_desc: RenderModelDesc,
+    pub text_desc: RenderTextDesc,
+    pub window_id: winit::window::WindowId,
+}
 
 pub struct Sun {
     instance: Option<wgpu::Instance>,
@@ -44,9 +57,19 @@ pub struct Sun {
     pub models: HashMap<String, SunModel>,
     pub fonts: HashMap<String, SunFont>,
 
+    pub quad_instance_buffer: Option<SunBuffer>,
+
+    pub vertex_buffers: HashMap<uuid::Uuid, Vec<SunBuffer>>,
+    pub index_buffers: HashMap<uuid::Uuid, SunBuffer>,
+    pub bind_groups: HashMap<String, wgpu::BindGroup>,
+
     commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+
+    ui_id: Entity,
+    frame_time: web_time::Instant,
+    time: web_time::Instant,
 }
 
 impl Sun {
@@ -123,6 +146,7 @@ impl Sun {
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
         bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
         topology: wgpu::PrimitiveTopology,
+        depth_stencil_desc: Option<wgpu::DepthStencilState>,
     ) {
         let pipeline = SunPipeline::new(
             self.device.as_ref().unwrap(),
@@ -134,6 +158,7 @@ impl Sun {
             vertex_buffer_layouts,
             bind_group_layout_descs,
             topology,
+            depth_stencil_desc,
         );
 
         self.pipelines.insert(name, pipeline);
@@ -144,7 +169,7 @@ impl Sun {
         }
     }
 
-    pub async fn regenerate_buffers(&mut self) {
+    pub async fn regenerate_buffers(&mut self, render_desc: &RenderFrameDesc) {
         if self.mvp_buffer.is_none() {
             let dummy_cam = CameraComponent::default();
             let dummy_transform = TransformComponent::zero();
@@ -183,29 +208,254 @@ impl Sun {
                     }),
             )
         }
+
+        // We get the viewport so we can calculate Normalized device coordinates for the position of the character in 2D
+        if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
+            // (Re)Generate text buffers only if the text has changed since last gen
+            for (entity, text, transform) in &render_desc.text_desc.texts {
+                let mut vertex_buffers = vec![];
+                let mut index_buffer = None;
+                if text.changed || vp.changed {
+                    let Some(font) = self.fonts.get(&text.font) else {
+                        error!("No font found with name: {}", text.font);
+                        return;
+                    };
+
+                    // Unwrap safety: in order to generate the atlas the data has already been parsed successfully
+                    let font_face = ttf_parser::Face::parse(&font.font_data, 0).unwrap();
+
+                    let question_mark_id = font_face
+                        .glyph_index('?')
+                        .expect("How TF can this font not have '?'");
+
+                    let characters = text.text.chars();
+                    let characters_count = text.text.len();
+
+                    // X coordinate
+                    let mut x = 0f32;
+
+                    // Font size scale
+                    let fs_scale =
+                        1.0 / (font_face.ascender() as f32 - font_face.descender() as f32);
+
+                    // Y coordinate
+                    let mut y = 0f32;
+
+                    let space_glyph_advance = font_face
+                        .glyph_hor_advance(
+                            font_face
+                                .glyph_index(' ')
+                                .expect("HOW TF CAN A FONT NOT HAVE THE SPACE CHAR"),
+                        )
+                        .unwrap();
+
+                    for (index, character) in characters.enumerate() {
+                        if character == '\r' {
+                            continue;
+                        }
+
+                        // Reset x and increase y by the appropriate amount
+                        if character == '\n' {
+                            x = 0f32;
+                            y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
+                            continue;
+                        }
+
+                        // Check to see if there are any more character and get the spacing in between to advance the x by
+                        if character == ' ' {
+                            let mut advance = space_glyph_advance;
+
+                            if index < characters_count - 1 {
+                                let next_char = text.text.as_bytes()[index + 1] as char;
+                                let next_char_id =
+                                    font_face.glyph_index(next_char).unwrap_or(question_mark_id);
+                                advance = font_face.glyph_hor_advance(next_char_id).unwrap();
+                            }
+
+                            x += fs_scale * advance as f32 + text.kerning;
+                            continue;
+                        }
+
+                        // Add four spaces
+                        if character == '\t' {
+                            x += 4.0 * (fs_scale * space_glyph_advance as f32 + text.kerning);
+                            continue;
+                        }
+
+                        let glyph_id = font_face.glyph_index(character).unwrap_or(question_mark_id);
+
+                        // Unwrap safety: a FONT atlas will always have handle to the individual characters
+                        let font_handles = font.atlas.texture_handles.as_ref().unwrap();
+                        let font_textures = &font.atlas.textures;
+
+                        // Unwrap safety: there is always a handle to match the glyph id for all glyphs within a font
+                        let handle = *font_handles.get(&glyph_id.0).unwrap();
+
+                        // The texture coords within the atlas are in pixel space
+                        let rect = font_textures[handle];
+
+                        // Convert to texture space by dividing by the width and height
+                        let uvs = Rect {
+                            min: Vector2 {
+                                x: rect.min.x as f32 / font.atlas.size.x,
+                                y: rect.min.y as f32 / font.atlas.size.y,
+                            },
+                            max: Vector2 {
+                                x: rect.max.x as f32 / font.atlas.size.x,
+                                y: rect.max.y as f32 / font.atlas.size.y,
+                            },
+                        };
+
+                        let quad_plane_bounds = font_face.glyph_bounding_box(glyph_id).unwrap();
+
+                        // Creare a bounding box out of the glyph
+                        let mut quad_rect = Rect {
+                            min: Vector2::new(
+                                quad_plane_bounds.x_min as f32,
+                                quad_plane_bounds.y_min as f32,
+                            ),
+                            max: Vector2::new(
+                                quad_plane_bounds.x_max as f32,
+                                quad_plane_bounds.y_max as f32,
+                            ),
+                        };
+
+                        // Scale the bounding box
+                        quad_rect.min *= fs_scale;
+                        quad_rect.max *= fs_scale;
+
+                        // Position it accordingly
+                        quad_rect.min += Vector2::new(x, y);
+                        quad_rect.max += Vector2::new(x, y);
+
+                        // Pixel space to normalized device coordinates:
+                        // ndc_x = ((pixel_x / screen_width) * 2) - 1
+                        // (ndc rectangle (scaled) + ndc translation) - 1
+                        let ndc_rect = Rect {
+                            min: Vector2 {
+                                x: ((((quad_rect.min.x * transform.scale.x
+                                    / vp.config.width as f32)
+                                    * 2.0)
+                                    + ((transform.translation.x / vp.config.width as f32) * 2.0))
+                                    - 1.0),
+                                y: ((((quad_rect.min.y * transform.scale.y
+                                    / vp.config.height as f32)
+                                    * 2.0)
+                                    + ((transform.translation.y / vp.config.height as f32) * 2.0))
+                                    - 1.0),
+                            },
+                            max: Vector2 {
+                                x: ((((quad_rect.max.x * transform.scale.x
+                                    / vp.config.width as f32)
+                                    * 2.0)
+                                    + ((transform.translation.x / vp.config.width as f32) * 2.0))
+                                    - 1.0),
+                                y: ((((quad_rect.max.y * transform.scale.y
+                                    / vp.config.height as f32)
+                                    * 2.0)
+                                    + ((transform.translation.y / vp.config.height as f32) * 2.0))
+                                    - 1.0),
+                            },
+                        };
+
+                        let quad = Primitive::new_quad(ndc_rect, uvs, text.color);
+
+                        let (vertices, indices) = match quad {
+                            Primitive::Quad(data) => (data.vertices, data.indices),
+                            _ => unreachable!(),
+                        };
+
+                        // Create buffers with the quad vertex data
+                        let vb = SunBuffer::new_with_data(
+                            "quad_vb",
+                            wgpu::BufferUsages::VERTEX,
+                            bytemuck::cast_slice(&vertices),
+                            self.device.as_ref().unwrap(),
+                        );
+
+                        let ib = SunBuffer::new_with_data(
+                            "quad_ib",
+                            wgpu::BufferUsages::INDEX,
+                            bytemuck::cast_slice(&indices),
+                            self.device.as_ref().unwrap(),
+                        );
+
+                        vertex_buffers.push(vb);
+                        index_buffer = Some(ib);
+
+                        // After each letter add the needed space for the next
+                        if index < characters_count - 1 {
+                            let advance = font_face.glyph_hor_advance(glyph_id).unwrap();
+                            x += fs_scale * advance as f32 + text.kerning;
+                        }
+                    }
+
+                    // Send change event with the changed entity to indicate we have created the buffers and rest viewport if changed
+                    if text.changed {
+                        let e = entity.clone();
+                        let mut text_changed = text.clone();
+
+                        text_changed.changed = false;
+
+                        let task = Box::new(move || {
+                            vec![CommandEvent::SignalChange((
+                                e,
+                                Some(ChangeComponentState::Text(text_changed.clone())),
+                            ))]
+                        });
+
+                        let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                        self.commands.push(cmd);
+                        self.ui_id = e;
+                    }
+
+                    // Reset vieport state
+                    if vp.changed {
+                        vp.changed = false;
+                    }
+                    if !vertex_buffers.is_empty() {
+                        self.vertex_buffers.insert(text.id, vertex_buffers);
+                    }
+                    if index_buffer.is_some() {
+                        self.index_buffers.insert(text.id, index_buffer.unwrap());
+                    }
+                }
+            }
+        }
     }
 
-    pub async fn redraw(&mut self, mut render_desc: RenderModelDesc) {
+    pub async fn redraw(&mut self, render_desc: RenderFrameDesc) {
         if !state::initialized() {
             return;
         }
+        self.regenerate_buffers(&render_desc).await;
 
-        render_desc
+        let mut model_desc = render_desc.model_desc;
+        model_desc
             .models
             .sort_by(|a, b| a.1.translation.z.total_cmp(&b.1.translation.z));
 
-        self.regenerate_buffers().await;
+        let text_desc = render_desc.text_desc;
 
+        // Get the viewport for the requested window
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
+            // Get the texture of the window to render to
+            let Ok(frame) = vp.get_current_texture() else {
+                error!(
+                    "Could not get viewport texture of [{:?}]",
+                    render_desc.window_id
+                );
+                return;
+            };
+
+            // Get the texture view of the surface
+            let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Render models
             if let Some(mvp_bg) = &self.mvp_bindgroup {
-                let Ok(frame) = vp.get_current_texture() else {
-                    return;
-                };
-
-                let view = frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
+                // Create command encoder for model render commands
                 let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
                     &wgpu::CommandEncoderDescriptor {
                         label: Some("model_render_commands"),
@@ -213,10 +463,11 @@ impl Sun {
                 );
 
                 // TODO (@A40): Get pipeline from material!
-                let basic_pipeline = self.pipelines.get("basic_shader.wgsl");
+                let model_pipeline = self.pipelines.get("basic_shader.wgsl");
 
-                if let Some(pipe) = basic_pipeline {
+                if let Some(pipe) = model_pipeline {
                     {
+                        // Model Render Pass
                         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: None,
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -244,11 +495,10 @@ impl Sun {
                             occlusion_query_set: None,
                         });
 
-                        for (model, transform) in render_desc.models.iter().rev() {
-                            rpass.set_pipeline(&pipe.pipeline);
-
+                        rpass.set_pipeline(&pipe.pipeline);
+                        for (model, transform) in model_desc.models.iter().rev() {
                             let mvp = ModelUniform::from_camera_and_model_transform(
-                                &render_desc.active_camera,
+                                &model_desc.active_camera,
                                 &transform,
                             );
 
@@ -264,11 +514,62 @@ impl Sun {
                             }
                         }
                     }
-                    self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
                 }
-
-                frame.present();
+                // Submit all render commands to the command queue
+                self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
             }
+            // Render Text
+            {
+                // Create command encoder for model render commands
+                let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor {
+                        label: Some("text_render_commands"),
+                    },
+                );
+
+                // TODO (@A40): Get pipeline from material!
+                let text_pipeline = self.pipelines.get("text_shader.wgsl");
+
+                if let Some(pipe) = text_pipeline {
+                    // Text Render Pass
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    rpass.set_pipeline(&pipe.pipeline);
+
+                    for (_, text, _transform) in text_desc.texts {
+                        let vbs = self.vertex_buffers.get(&text.id);
+                        let ib = self.index_buffers.get(&text.id);
+                        let texture_bind_group = self.bind_groups.get(&text.font);
+
+                        if vbs.is_some() && ib.is_some() && texture_bind_group.is_some() {
+                            for buf in vbs.unwrap() {
+                                rpass.draw_textured_quad(
+                                    buf,
+                                    ib.unwrap(),
+                                    texture_bind_group.unwrap(),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Submit all render commands to the command queue
+                self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
+            }
+
+            // Present to the texture executing the submitted commands?
+            frame.present();
         }
     }
 }
@@ -299,9 +600,19 @@ impl Default for Sun {
             models: HashMap::new(),
             fonts: HashMap::new(),
 
+            quad_instance_buffer: None,
+
+            vertex_buffers: HashMap::new(),
+            index_buffers: HashMap::new(),
+            bind_groups: HashMap::new(),
+
             commands: vec![],
 
             proxy: None,
+
+            ui_id: Entity::PLACEHOLDER,
+            frame_time: web_time::Instant::now(),
+            time: web_time::Instant::now(),
         }
     }
 }
@@ -339,7 +650,7 @@ impl App for Sun {
                 self.viewports.remove(id);
             }
 
-            CommandEvent::RenderModel(render_desc) => {
+            CommandEvent::RenderFrame(render_desc) => {
                 self.redraw(render_desc.clone()).await;
             }
 
@@ -355,6 +666,7 @@ impl App for Sun {
                     &pipe_desc.vertex_buffer_layouts,
                     pipe_desc.bind_group_layout_desc,
                     pipe_desc.topology,
+                    pipe_desc.depth_stencil_desc,
                 )
                 .await;
             }
@@ -369,6 +681,49 @@ impl App for Sun {
                         match font {
                             Ok(font) => {
                                 info!("Successfully created font: {}", font.font_file);
+
+                                let Ok(font_atlas_texture) = SunTexture::from_image(
+                                    &font.font_file,
+                                    self.device.as_ref().unwrap(),
+                                    self.queue.as_ref().unwrap(),
+                                    font.atlas.image.clone(),
+                                ) else {
+                                    error!(
+                                        "Failed to create texture from font image: {}",
+                                        font.font_file
+                                    );
+                                    return;
+                                };
+
+                                let font_atlas_texture_bg_layout = &self
+                                    .pipelines
+                                    .get("text_shader.wgsl")
+                                    .unwrap()
+                                    .bind_group_layouts[0];
+
+                                let font_bind_group =
+                                    self.device.as_ref().unwrap().create_bind_group(
+                                        &wgpu::BindGroupDescriptor {
+                                            label: None,
+                                            layout: font_atlas_texture_bg_layout,
+                                            entries: &[
+                                                wgpu::BindGroupEntry {
+                                                    binding: 0,
+                                                    resource: wgpu::BindingResource::TextureView(
+                                                        &font_atlas_texture.view,
+                                                    ),
+                                                },
+                                                wgpu::BindGroupEntry {
+                                                    binding: 1,
+                                                    resource: wgpu::BindingResource::Sampler(
+                                                        &font_atlas_texture.sampler,
+                                                    ),
+                                                },
+                                            ],
+                                        },
+                                    );
+                                self.bind_groups
+                                    .insert(font.font_file.clone(), font_bind_group);
                                 self.fonts.insert(font.font_file.clone(), font);
                             }
                             Err(err) => {
@@ -487,6 +842,33 @@ impl App for Sun {
                             label: Some("Camera Bind Group Layout"),
                         };
 
+                        let stencil_state_front = wgpu::StencilFaceState {
+                            compare: wgpu::CompareFunction::Greater,
+                            fail_op: wgpu::StencilOperation::IncrementClamp,
+                            depth_fail_op: wgpu::StencilOperation::DecrementClamp,
+                            pass_op: wgpu::StencilOperation::DecrementClamp,
+                        };
+
+                        let stencil_state_back = wgpu::StencilFaceState {
+                            compare: wgpu::CompareFunction::Always,
+                            fail_op: wgpu::StencilOperation::DecrementClamp,
+                            depth_fail_op: wgpu::StencilOperation::IncrementClamp,
+                            pass_op: wgpu::StencilOperation::DecrementClamp,
+                        };
+
+                        let depth_stencil_desc = Some(wgpu::DepthStencilState {
+                            format: wgpu::TextureFormat::Depth32FloatStencil8,
+                            depth_write_enabled: true,
+                            depth_compare: wgpu::CompareFunction::Less,
+                            stencil: wgpu::StencilState {
+                                front: stencil_state_front,
+                                back: stencil_state_back,
+                                read_mask: 0xff,
+                                write_mask: 0xff,
+                            },
+                            bias: wgpu::DepthBiasState::default(),
+                        });
+
                         // Model pipeline
                         let pipe_desc = PipelineDesc {
                             name: name.clone(),
@@ -494,13 +876,14 @@ impl App for Sun {
                             shader_src: String::from_utf8(shader.data.clone()).unwrap(),
                             vertex_entry_fn_name: "vs_main".to_string(),
                             fragment_entry_fn_name: "fs_main".to_string(),
-                            vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                            vertex_buffer_layouts: vec![super::primitive::ModelVertex::desc()],
                             topology: wgpu::PrimitiveTopology::TriangleList,
                             bind_group_layout_desc: vec![
                                 camera_bg_layout_desc.clone(),
                                 basic_tex_bg_layout_desc.clone(),
                             ],
                             bind_group_layout_name: vec!["camera".into(), "diffuse".into()],
+                            depth_stencil_desc,
                         };
 
                         self.proxy
@@ -514,15 +897,13 @@ impl App for Sun {
                             name: "text_shader.wgsl".to_string(),
                             win_id: window_id,
                             shader_src: String::from_utf8(shader.data.clone()).unwrap(),
-                            vertex_entry_fn_name: "vs_main".to_string(),
+                            vertex_entry_fn_name: "vs_text".to_string(),
                             fragment_entry_fn_name: "fs_text".to_string(),
-                            vertex_buffer_layouts: vec![super::primitive::Vertex::desc()],
+                            vertex_buffer_layouts: vec![super::primitive::Quad2DVertex::desc()],
                             topology: wgpu::PrimitiveTopology::TriangleList,
-                            bind_group_layout_desc: vec![
-                                camera_bg_layout_desc.clone(),
-                                basic_tex_bg_layout_desc.clone(),
-                            ],
-                            bind_group_layout_name: vec!["camera".into(), "diffuse".into()],
+                            bind_group_layout_desc: vec![basic_tex_bg_layout_desc.clone()],
+                            bind_group_layout_name: vec!["diffuse".into()],
+                            depth_stencil_desc: None,
                         };
 
                         self.proxy
@@ -552,6 +933,32 @@ impl App for Sun {
     }
 
     fn update(&mut self, _delta_time: f32) -> Vec<Command> {
+        if self.ui_id != Entity::PLACEHOLDER {
+            let e = self.ui_id.clone();
+            let renderer_time = self.time.elapsed().as_secs_f32();
+
+            let frame_time = self.frame_time.elapsed().as_nanos() as f32 / 1_000_000.0;
+            self.frame_time = web_time::Instant::now();
+
+            if renderer_time > 0.01 {
+                self.time = web_time::Instant::now();
+                let text_changed = TextComponent {
+                    changed: true,
+                    text: format!("Render Time: {}ms", frame_time),
+                    ..Default::default()
+                };
+                let task = Box::new(move || {
+                    vec![CommandEvent::SignalChange((
+                        e,
+                        Some(ChangeComponentState::Text(text_changed.clone())),
+                    ))]
+                });
+
+                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                self.commands.push(cmd);
+            }
+        }
+
         self.commands.drain(..).collect()
     }
 
@@ -575,6 +982,7 @@ pub struct ViewportDesc {
 pub struct Viewport {
     desc: ViewportDesc,
     config: wgpu::SurfaceConfiguration,
+    changed: bool,
 }
 
 impl ViewportDesc {
@@ -610,7 +1018,11 @@ impl ViewportDesc {
 
         self.surface.configure(device, &config);
 
-        Viewport { desc: self, config }
+        Viewport {
+            desc: self,
+            config,
+            changed: true,
+        }
     }
 
     pub fn window(&self) -> Arc<Window> {
@@ -624,6 +1036,7 @@ impl Viewport {
             self.config.width = size.width;
             self.config.height = size.height;
             self.desc.surface.configure(device, &self.config);
+            self.changed = true;
         }
     }
     fn get_current_texture(&mut self) -> anyhow::Result<wgpu::SurfaceTexture> {

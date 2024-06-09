@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use tracing::info;
 use wgpu::Device;
 
 use super::{
@@ -18,6 +19,7 @@ pub struct PipelineDesc {
     pub bind_group_layout_desc: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
     pub bind_group_layout_name: Vec<String>,
     pub topology: wgpu::PrimitiveTopology,
+    pub depth_stencil_desc: Option<wgpu::DepthStencilState>,
 }
 
 pub struct SunPipeline {
@@ -43,25 +45,12 @@ impl SunPipeline {
         vertex_buffer_layouts: &[wgpu::VertexBufferLayout<'static>],
         bind_group_layout_descs: Vec<wgpu::BindGroupLayoutDescriptor<'static>>,
         topology: wgpu::PrimitiveTopology,
+        depth_stencil_desc: Option<wgpu::DepthStencilState>,
     ) -> Self {
         let mut bind_group_layouts = Vec::new();
 
         let depth_texture =
             SunTexture::create_depth_texture(device, viewport.get_config(), "depth_texture");
-
-        let stencil_state_front = wgpu::StencilFaceState {
-            compare: wgpu::CompareFunction::Greater,
-            fail_op: wgpu::StencilOperation::IncrementClamp,
-            depth_fail_op: wgpu::StencilOperation::DecrementClamp,
-            pass_op: wgpu::StencilOperation::DecrementClamp,
-        };
-
-        let stencil_state_back = wgpu::StencilFaceState {
-            compare: wgpu::CompareFunction::Always,
-            fail_op: wgpu::StencilOperation::DecrementClamp,
-            depth_fail_op: wgpu::StencilOperation::IncrementClamp,
-            pass_op: wgpu::StencilOperation::DecrementClamp,
-        };
 
         for index in 0..bind_group_layout_descs.len() as u32 {
             let bind_group_layout =
@@ -104,7 +93,7 @@ impl SunPipeline {
                 topology,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
                 // Requires Features::DEPTH_CLIP_CONTROL
@@ -112,18 +101,7 @@ impl SunPipeline {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32FloatStencil8,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState {
-                    front: stencil_state_front,
-                    back: stencil_state_back,
-                    read_mask: 0xff,
-                    write_mask: 0xff,
-                },
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: depth_stencil_desc,
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -131,6 +109,8 @@ impl SunPipeline {
             },
             multiview: None,
         });
+
+        info!("Successfully Created Render Pipeline: {name}");
 
         Self {
             id: uuid::Uuid::new_v4(),

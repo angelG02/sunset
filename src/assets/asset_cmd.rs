@@ -200,7 +200,8 @@ impl AssetCommand {
                 _ => AssetType::Unknown,
             };
 
-            let asset_folder_path = std::env::var("ASSETS_PATH").unwrap();
+            //let asset_folder_path = std::env::var("ASSETS_PATH").unwrap();
+            let asset_folder_path = "assets/";
             let full_path = format!("{asset_folder_path}{asset_path}");
 
             let data = std::fs::read(full_path);
