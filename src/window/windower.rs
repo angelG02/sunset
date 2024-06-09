@@ -145,6 +145,9 @@ impl Windower {
 
 #[async_trait(?Send)]
 impl App for Windower {
+    fn get_name(&self) -> String {
+        "Windower".into()
+    }
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 

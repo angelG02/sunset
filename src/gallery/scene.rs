@@ -251,6 +251,9 @@ impl Scene {
 
 #[async_trait(?Send)]
 impl App for Scene {
+    fn get_name(&self) -> String {
+        "Scene".into()
+    }
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 

@@ -11,6 +11,8 @@ use async_trait::async_trait;
 #[async_trait(?Send)]
 /// The `App` trait represents the core functionality of an application.
 pub trait App {
+    fn get_name(&self) -> String;
+
     /// Initializes the application with the provided initial commands.
     ///
     /// # Arguments

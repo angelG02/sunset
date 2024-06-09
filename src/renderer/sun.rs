@@ -308,6 +308,9 @@ impl Default for Sun {
 
 #[async_trait(?Send)]
 impl App for Sun {
+    fn get_name(&self) -> String {
+        "Renderer".into()
+    }
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 

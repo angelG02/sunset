@@ -50,6 +50,9 @@ impl CLI {
 
 #[async_trait(?Send)]
 impl App for CLI {
+    fn get_name(&self) -> String {
+        "CLI".into()
+    }
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp);
     }

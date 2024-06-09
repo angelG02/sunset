@@ -96,6 +96,9 @@ impl AssetServer {
 
 #[async_trait(?Send)]
 impl App for AssetServer {
+    fn get_name(&self) -> String {
+        "Asset Server".into()
+    }
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone())
     }
