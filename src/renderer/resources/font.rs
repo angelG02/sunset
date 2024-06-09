@@ -17,6 +17,7 @@ use super::{texture_atlas::TextureAtlas, texture_atlas_builder::TextureAtlasBuil
 pub struct SunFont {
     pub font_file: String,
     pub atlas: TextureAtlas,
+    pub font_data: Vec<u8>,
 }
 
 impl SunFont {
@@ -123,6 +124,7 @@ impl SunFont {
         Ok(Self {
             font_file: font_file.to_owned(),
             atlas,
+            font_data: data.to_vec(),
         })
     }
 

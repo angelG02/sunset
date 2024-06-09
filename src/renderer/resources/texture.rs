@@ -1,6 +1,8 @@
 use anyhow::*;
 use image::{GenericImageView, ImageFormat, Rgba, RgbaImage};
 
+use super::image::Image;
+
 #[derive(Debug)]
 
 pub struct SunTexture {
@@ -26,10 +28,23 @@ impl SunTexture {
         format: ImageFormat,
     ) -> Result<Self> {
         let img = image::load_from_memory_with_format(bytes, format)?;
-        Self::from_image(label, device, queue, &img)
+        Self::from_dynammic_image(label, device, queue, &img)
     }
 
     pub fn from_image(
+        label: &str,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: Image,
+    ) -> Result<SunTexture> {
+        let dyn_image = image::DynamicImage::ImageRgba8(
+            image::RgbaImage::from_raw(image.width(), image.height(), image.data.clone()).unwrap(),
+        );
+
+        Self::from_dynammic_image(label, device, queue, &dyn_image)
+    }
+
+    pub fn from_dynammic_image(
         label: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
