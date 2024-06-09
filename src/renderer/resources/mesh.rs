@@ -6,7 +6,7 @@ use tracing::{error, info};
 
 use crate::{
     prelude::{
-        primitive::Vertex,
+        primitive::ModelVertex,
         resources::{material::SunMaterial, model::ModelCreationError, texture::SunTexture},
     },
     renderer::buffer::SunBuffer,
@@ -277,7 +277,7 @@ impl SunMesh {
             }
 
             let vertices = (0..positions.len())
-                .map(|i| Vertex {
+                .map(|i| ModelVertex {
                     position: positions[i],
                     tex_coords: *tex_coords.get(i).unwrap_or(&[0.0, 0.0]),
                     normal: *normals.get(i).unwrap_or(&[0.0, 0.0, 0.0]),
