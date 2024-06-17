@@ -10,7 +10,7 @@ use crate::{
         camera_component::{CameraComponent, ModelUniform},
         command_queue::CommandType,
         state,
-        text_component::{RenderUIDesc, TextComponent},
+        text_component::{RenderUIDesc, TextDesc},
         transform_component::TransformComponent,
         ui_component::{UIComponent, UIType},
         Asset, AssetStatus, AssetType, ChangeComponentState,
@@ -213,7 +213,56 @@ impl Sun {
                 let mut index_buffer = None;
 
                 match ui.clone().ui_type {
-                    UIType::Container(ui_container) => {}
+                    UIType::Container(ui_container) => {
+                        if ui_container.changed || vp.changed {
+                            // Create geometry out of the text and its transform
+                            let (vertices_array, indices) = ui_container.tesselate(transform, &vp);
+
+                            // Create buffers with the quad vertex data
+                            let ib = SunBuffer::new_with_data(
+                                "quad_ib",
+                                wgpu::BufferUsages::INDEX,
+                                bytemuck::cast_slice(&indices),
+                                self.device.as_ref().unwrap(),
+                            );
+                            index_buffer = Some(ib);
+
+                            for vertices in vertices_array {
+                                let vb = SunBuffer::new_with_data(
+                                    "quad_vb",
+                                    wgpu::BufferUsages::VERTEX,
+                                    bytemuck::cast_slice(&vertices),
+                                    self.device.as_ref().unwrap(),
+                                );
+
+                                vertex_buffers.push(vb);
+                            }
+
+                            // Send change event to the desired UI handle
+                            // to indicate we have created the buffers and rest viewport if changed
+                            if ui_container.changed {
+                                let mut ui_container_changed = ui_container.clone();
+
+                                ui_container_changed.changed = false;
+
+                                let ui_changed = UIComponent {
+                                    id: ui.id.clone(),
+                                    string_id: ui.string_id.clone(),
+                                    ui_type: UIType::Container(ui_container_changed),
+                                };
+
+                                let task = Box::new(move || {
+                                    vec![CommandEvent::SignalChange(ChangeComponentState::UI((
+                                        ui_changed.clone(),
+                                        None,
+                                    )))]
+                                });
+
+                                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                                self.commands.push(cmd);
+                            }
+                        }
+                    }
                     UIType::Text(text) => {
                         if text.changed || vp.changed {
                             let Some(font) = self.fonts.get(&text.font) else {
@@ -253,6 +302,7 @@ impl Sun {
 
                                 let ui_changed = UIComponent {
                                     id: ui.id.clone(),
+                                    string_id: ui.string_id.clone(),
                                     ui_type: UIType::Text(text_changed),
                                 };
 
@@ -266,19 +316,18 @@ impl Sun {
                                 let cmd = Command::new("sun", CommandType::Other, None, Some(task));
                                 self.commands.push(cmd);
                             }
-
-                            // Reset vieport state
-                            if vp.changed {
-                                vp.changed = false;
-                            }
-                            if !vertex_buffers.is_empty() {
-                                self.vertex_buffers.insert(text.id, vertex_buffers);
-                            }
-                            if index_buffer.is_some() {
-                                self.index_buffers.insert(text.id, index_buffer.unwrap());
-                            }
                         }
                     }
+                }
+                // Reset vieport state
+                if vp.changed {
+                    vp.changed = false;
+                }
+                if !vertex_buffers.is_empty() {
+                    self.vertex_buffers.insert(ui.id, vertex_buffers);
+                }
+                if index_buffer.is_some() {
+                    self.index_buffers.insert(ui.id, index_buffer.unwrap());
                 }
             }
         }
@@ -379,50 +428,63 @@ impl Sun {
                 self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
             }
             // Render Text
+            // Create command encoder for model render commands
+            let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
+                &wgpu::CommandEncoderDescriptor {
+                    label: Some("text_render_commands"),
+                },
+            );
             {
-                // Create command encoder for model render commands
-                let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
-                    &wgpu::CommandEncoderDescriptor {
-                        label: Some("text_render_commands"),
-                    },
-                );
-
                 // TODO (@A40): Get pipeline from material!
                 let text_pipeline = self.pipelines.get("text_shader.wgsl");
                 let quad_pipeline = self.pipelines.get("quad_shader.wgsl");
 
-                if let Some(pipe) = text_pipeline {
-                    // UI Render Pass
+                // UI Render Pass
 
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
 
-                    for (ui, _transform) in ui_desc.uis {
-                        match ui.ui_type {
-                            UIType::Container(_) => todo!(),
-                            UIType::Text(text) => {
+                for (ui, _transform) in ui_desc.uis {
+                    let vertex_buffers = self.vertex_buffers.get(&ui.id);
+                    let index_buffer = self.index_buffers.get(&ui.id);
+                    match ui.ui_type {
+                        UIType::Container(_) => {
+                            if let Some(pipe) = quad_pipeline {
                                 rpass.set_pipeline(&pipe.pipeline);
-                                let vbs = self.vertex_buffers.get(&text.id);
-                                let ib = self.index_buffers.get(&text.id);
+
+                                if vertex_buffers.is_some() && index_buffer.is_some() {
+                                    for buf in vertex_buffers.unwrap() {
+                                        // TODO: Check for texture in quad data and set pipeline accordingly
+                                        rpass.draw_colored_quad(buf, index_buffer.unwrap());
+                                    }
+                                }
+                            }
+                        }
+                        UIType::Text(text) => {
+                            if let Some(pipe) = text_pipeline {
+                                rpass.set_pipeline(&pipe.pipeline);
                                 let texture_bind_group = self.bind_groups.get(&text.font);
 
-                                if vbs.is_some() && ib.is_some() && texture_bind_group.is_some() {
-                                    for buf in vbs.unwrap() {
+                                if vertex_buffers.is_some()
+                                    && index_buffer.is_some()
+                                    && texture_bind_group.is_some()
+                                {
+                                    for buf in vertex_buffers.unwrap() {
                                         rpass.draw_textured_quad(
                                             buf,
-                                            ib.unwrap(),
+                                            index_buffer.unwrap(),
                                             texture_bind_group.unwrap(),
                                         );
                                     }
@@ -431,9 +493,9 @@ impl Sun {
                         }
                     }
                 }
-                // Submit all render commands to the command queue
-                self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
             }
+            // Submit all render commands to the command queue
+            self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
 
             // Present to the texture executing the submitted commands?
             frame.present();
@@ -777,23 +839,29 @@ impl App for Sun {
                             .unwrap()
                             .send_event(CommandEvent::RequestPipeline(pipe_desc))
                             .unwrap();
+
+                        // Colored Quad pipeline
+                        let pipe_desc = PipelineDesc {
+                            name: "quad_shader.wgsl".to_string(),
+                            win_id: window_id,
+                            shader_src: String::from_utf8(shader.data.clone()).unwrap(),
+                            vertex_entry_fn_name: "vs_quad".to_string(),
+                            fragment_entry_fn_name: "fs_colored_quad".to_string(),
+                            vertex_buffer_layouts: vec![super::primitive::Quad2DVertex::desc()],
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            bind_group_layout_desc: vec![],
+                            bind_group_layout_name: vec![],
+                            depth_stencil_desc: None,
+                        };
+
+                        self.proxy
+                            .as_ref()
+                            .unwrap()
+                            .send_event(CommandEvent::RequestPipeline(pipe_desc))
+                            .unwrap();
                     }
                 }
             }
-            // WindowEvent::KeyboardInput {
-            //     device_id: _,
-            //     event,
-            //     is_synthetic: _,
-            // } => {
-            //     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::F1)
-            //         && event.state == winit::event::ElementState::Released
-            //     {
-            //         self.lined = !self.lined;
-            //         for vp in self.viewports.values() {
-            //             vp.read().await.desc.window.request_redraw();
-            //         }
-            //     }
-            // }
             _ => {}
         }
     }
@@ -806,14 +874,15 @@ impl App for Sun {
 
         if renderer_time > 0.01 {
             self.time = web_time::Instant::now();
-            let text_changed = TextComponent {
+            let text_changed = TextDesc {
                 changed: true,
                 text: format!("Render Time: {}ms", frame_time),
                 ..Default::default()
             };
 
             let ui_changed = UIComponent {
-                id: "stats".to_string(),
+                id: uuid::Uuid::new_v4(),
+                string_id: "stats".to_string(),
                 ui_type: UIType::Text(text_changed),
             };
 

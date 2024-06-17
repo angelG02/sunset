@@ -101,6 +101,8 @@ unsafe impl bytemuck::Pod for TextInstance {}
 pub struct QuadData {
     pub vertices: [Quad2DVertex; 4],
     pub indices: [u32; 6],
+    // Z-inedx that indicates which quads are drawn on top of which
+    pub z_index: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +118,7 @@ impl Primitive {
     /// along with color and the 4 uv coordinates for top right/left bottom right/left
     ///
     /// Returns a Quad variaation of the primitive with Quad Data (vertices and indices)
-    pub fn new_quad(bounds: Rect<f32>, uvs: Rect<f32>, color: Vector4<f32>) -> Self {
+    pub fn new_quad(bounds: Rect<f32>, uvs: Rect<f32>, color: Vector4<f32>, z_index: u16) -> Self {
         let tex_coord_tr: [f32; 2] = [uvs.max.x, uvs.min.y];
         let tex_coord_tl: [f32; 2] = [uvs.min.x, uvs.min.y];
         let tex_coord_bl: [f32; 2] = [uvs.min.x, uvs.max.y];
@@ -166,7 +168,18 @@ impl Primitive {
 
         let indices = [0u32, 1u32, 2u32, 0u32, 2u32, 3u32];
 
-        Primitive::Quad(QuadData { vertices, indices })
+        Primitive::Quad(QuadData {
+            vertices,
+            indices,
+            z_index,
+        })
+    }
+
+    pub fn data(self) -> ([Quad2DVertex; 4], [u32; 6]) {
+        match self {
+            Primitive::Quad(data) => (data.vertices, data.indices),
+            _ => unimplemented!(),
+        }
     }
 }
 
@@ -178,6 +191,8 @@ pub trait Render2D<'a> {
         ib: &'a SunBuffer,
         texture_bind_group: &'a wgpu::BindGroup,
     );
+
+    fn draw_colored_quad(&mut self, vb: &'a SunBuffer, ib: &'a SunBuffer);
 }
 
 // TODO (A40): See how Hazel handle buffers
@@ -196,6 +211,12 @@ where
         self.set_vertex_buffer(0, vb.get_buffer().slice(..));
         self.set_index_buffer(ib.get_buffer().slice(..), wgpu::IndexFormat::Uint32);
         self.set_bind_group(0, &texture_bind_group, &vec![]);
+        self.draw_indexed(0..6, 0, 0..1);
+    }
+
+    fn draw_colored_quad(&mut self, vb: &'a SunBuffer, ib: &'a SunBuffer) {
+        self.set_vertex_buffer(0, vb.get_buffer().slice(..));
+        self.set_index_buffer(ib.get_buffer().slice(..), wgpu::IndexFormat::Uint32);
         self.draw_indexed(0..6, 0, 0..1);
     }
 }

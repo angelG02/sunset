@@ -1,4 +1,3 @@
-use bevy_ecs::component::Component;
 use cgmath::{Vector2, Vector4};
 
 use crate::prelude::{
@@ -15,10 +14,8 @@ pub struct RenderUIDesc {
     pub uis: Vec<(UIComponent, TransformComponent)>,
 }
 
-#[derive(Debug, Clone, Component)]
-pub struct TextComponent {
-    // Unique identifier (used for buffer generation)
-    pub id: uuid::Uuid,
+#[derive(Debug, Clone)]
+pub struct TextDesc {
     // The text to display
     pub text: String,
     // Handle to the font file
@@ -35,22 +32,21 @@ pub struct TextComponent {
     pub changed: bool,
 }
 
-impl Default for TextComponent {
+impl Default for TextDesc {
     fn default() -> Self {
         Self {
-            text: "TextComponent".to_string(),
+            text: "TextDesc".to_string(),
             font: "OpenSans-Regular.ttf".to_string(),
             color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             kerning: 0.0,
             line_spacing: 1.0,
             max_width: f32::MAX,
             changed: true,
-            id: uuid::Uuid::new_v4(),
         }
     }
 }
 
-impl TextComponent {
+impl TextDesc {
     // Based on a provided transform, font and viewport,
     // calculate the vertices, indices and texture coordiantes of each character in the text component's text
     pub fn tesselate(
@@ -189,12 +185,10 @@ impl TextComponent {
                 },
             };
 
-            let quad = Primitive::new_quad(ndc_rect, uvs, self.color);
+            let quad =
+                Primitive::new_quad(ndc_rect, uvs, self.color, transform.translation.z as u16);
 
-            let (vert, ind) = match quad {
-                Primitive::Quad(data) => (data.vertices, data.indices),
-                _ => unreachable!(),
-            };
+            let (vert, ind) = quad.data();
 
             vertices.push(vert);
             indices = ind;

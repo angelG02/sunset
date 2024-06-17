@@ -29,12 +29,12 @@ use crate::{
     },
     prelude::{
         camera_component::CamType,
-        resources::model::RenderModelDesc,
+        resources::{model::RenderModelDesc, rect::Rect},
         state,
         sun::RenderFrameDesc,
-        text_component::{RenderUIDesc, TextComponent},
+        text_component::{RenderUIDesc, TextDesc},
         transform_component::TransformComponent,
-        ui_component::{UIComponent, UIType},
+        ui_component::{BorderDesc, ContainerDesc, UIComponent, UIType},
     },
 };
 
@@ -277,23 +277,53 @@ impl App for Scene {
         text_transform.scale.y += 150.0;
         text_transform.translation.x += 50.0;
         text_transform.translation.y += 160.0;
+        text_transform.translation.z = 0.0;
 
-        let text = TextComponent {
+        let text = TextDesc {
             text: "Шо стааа Генкатах е тукаааааааа".to_string(),
             color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             ..Default::default()
         };
 
         let ui_text = UIComponent {
-            id: "stats".to_string(),
+            id: uuid::Uuid::new_v4(),
+            string_id: "stats".to_string(),
             ui_type: UIType::Text(text),
         };
 
         let mut e = self.world.spawn_empty();
 
-        self.ui_handles.insert(ui_text.id.clone(), e.id());
+        self.ui_handles.insert(ui_text.string_id.clone(), e.id());
 
         e.insert((text_transform, ui_text));
+
+        //Manully spawn Quad UI element for test
+
+        let mut quad_transform = TransformComponent::zero();
+        quad_transform.translation.z = 0.0;
+
+        let ui_quad = UIComponent {
+            id: uuid::Uuid::new_v4(),
+            string_id: "test".to_string(),
+            ui_type: UIType::Container(ContainerDesc {
+                bounds: Rect {
+                    min: [0.0, 0.0].into(),
+                    max: [100.0, 100.0].into(),
+                },
+                color: Vector4::new(4.0 / 255.0, 229.0 / 255.0, 218.0 / 255.0, 1.0),
+                border: BorderDesc {
+                    color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
+                    width: 10.0,
+                },
+                ..Default::default()
+            }),
+        };
+
+        let mut e = self.world.spawn_empty();
+
+        self.ui_handles.insert(ui_quad.string_id.clone(), e.id());
+
+        e.insert((quad_transform, ui_quad));
 
         self.commands.append(&mut vec![
             load_missing_tex,
@@ -326,11 +356,15 @@ impl App for Scene {
                 match change_state {
                     // Replace/Add Text
                     crate::prelude::ChangeComponentState::UI((changed_ui, changed_transform)) => {
-                        let id = &changed_ui.id;
+                        let id = &changed_ui.string_id;
                         if let Some(entity) = self.ui_handles.get(id) {
                             // Replace or spawn component of the requested type on the provided entity
                             if let Some(mut ui) = self.world.get_mut::<UIComponent>(*entity) {
-                                *ui = changed_ui.clone();
+                                *ui = UIComponent {
+                                    id: ui.id,
+                                    string_id: ui.string_id.clone(),
+                                    ui_type: changed_ui.ui_type.clone(),
+                                };
                             } else {
                                 self.world.entity_mut(*entity).insert(changed_ui.clone());
                             }
