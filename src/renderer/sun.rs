@@ -1,8 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use bevy_ecs::entity::Entity;
-use cgmath::Vector2;
 use tracing::{error, info};
 use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 
@@ -11,11 +9,10 @@ use crate::{
     prelude::{
         camera_component::{CameraComponent, ModelUniform},
         command_queue::CommandType,
-        primitive::Primitive,
-        resources::rect::Rect,
         state,
-        text_component::{RenderTextDesc, TextComponent},
+        text_component::{RenderUIDesc, TextComponent},
         transform_component::TransformComponent,
+        ui_component::{UIComponent, UIType},
         Asset, AssetStatus, AssetType, ChangeComponentState,
     },
 };
@@ -37,7 +34,7 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct RenderFrameDesc {
     pub model_desc: RenderModelDesc,
-    pub text_desc: RenderTextDesc,
+    pub ui_desc: RenderUIDesc,
     pub window_id: winit::window::WindowId,
 }
 
@@ -67,7 +64,6 @@ pub struct Sun {
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
 
-    ui_id: Entity,
     frame_time: web_time::Instant,
     time: web_time::Instant,
 }
@@ -212,212 +208,76 @@ impl Sun {
         // We get the viewport so we can calculate Normalized device coordinates for the position of the character in 2D
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
             // (Re)Generate text buffers only if the text has changed since last gen
-            for (entity, text, transform) in &render_desc.text_desc.texts {
+            for (ui, transform) in &render_desc.ui_desc.uis {
                 let mut vertex_buffers = vec![];
                 let mut index_buffer = None;
-                if text.changed || vp.changed {
-                    let Some(font) = self.fonts.get(&text.font) else {
-                        error!("No font found with name: {}", text.font);
-                        return;
-                    };
 
-                    // Unwrap safety: in order to generate the atlas the data has already been parsed successfully
-                    let font_face = ttf_parser::Face::parse(&font.font_data, 0).unwrap();
+                match ui.clone().ui_type {
+                    UIType::Container(ui_container) => {}
+                    UIType::Text(text) => {
+                        if text.changed || vp.changed {
+                            let Some(font) = self.fonts.get(&text.font) else {
+                                error!("No font found with name: {}", text.font);
+                                return;
+                            };
 
-                    let question_mark_id = font_face
-                        .glyph_index('?')
-                        .expect("How TF can this font not have '?'");
+                            // Create geometry out of the text and its transform
+                            let (vertices_array, indices) = text.tesselate(font, transform, &vp);
 
-                    let characters = text.text.chars();
-                    let characters_count = text.text.len();
+                            // Create buffers with the quad vertex data
+                            let ib = SunBuffer::new_with_data(
+                                "quad_ib",
+                                wgpu::BufferUsages::INDEX,
+                                bytemuck::cast_slice(&indices),
+                                self.device.as_ref().unwrap(),
+                            );
+                            index_buffer = Some(ib);
 
-                    // X coordinate
-                    let mut x = 0f32;
+                            for vertices in vertices_array {
+                                let vb = SunBuffer::new_with_data(
+                                    "quad_vb",
+                                    wgpu::BufferUsages::VERTEX,
+                                    bytemuck::cast_slice(&vertices),
+                                    self.device.as_ref().unwrap(),
+                                );
 
-                    // Font size scale
-                    let fs_scale =
-                        1.0 / (font_face.ascender() as f32 - font_face.descender() as f32);
-
-                    // Y coordinate
-                    let mut y = 0f32;
-
-                    let space_glyph_advance = font_face
-                        .glyph_hor_advance(
-                            font_face
-                                .glyph_index(' ')
-                                .expect("HOW TF CAN A FONT NOT HAVE THE SPACE CHAR"),
-                        )
-                        .unwrap();
-
-                    for (index, character) in characters.enumerate() {
-                        if character == '\r' {
-                            continue;
-                        }
-
-                        // Reset x and increase y by the appropriate amount
-                        if character == '\n' {
-                            x = 0f32;
-                            y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
-                            continue;
-                        }
-
-                        // Check to see if there are any more character and get the spacing in between to advance the x by
-                        if character == ' ' {
-                            let mut advance = space_glyph_advance;
-
-                            if index < characters_count - 1 {
-                                let next_char = text.text.as_bytes()[index + 1] as char;
-                                let next_char_id =
-                                    font_face.glyph_index(next_char).unwrap_or(question_mark_id);
-                                advance = font_face.glyph_hor_advance(next_char_id).unwrap();
+                                vertex_buffers.push(vb);
                             }
 
-                            x += fs_scale * advance as f32 + text.kerning;
-                            continue;
+                            // Send change event to the desired UI handle
+                            // to indicate we have created the buffers and rest viewport if changed
+                            if text.changed {
+                                let mut text_changed = text.clone();
+
+                                text_changed.changed = false;
+
+                                let ui_changed = UIComponent {
+                                    id: ui.id.clone(),
+                                    ui_type: UIType::Text(text_changed),
+                                };
+
+                                let task = Box::new(move || {
+                                    vec![CommandEvent::SignalChange(ChangeComponentState::UI((
+                                        ui_changed.clone(),
+                                        None,
+                                    )))]
+                                });
+
+                                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                                self.commands.push(cmd);
+                            }
+
+                            // Reset vieport state
+                            if vp.changed {
+                                vp.changed = false;
+                            }
+                            if !vertex_buffers.is_empty() {
+                                self.vertex_buffers.insert(text.id, vertex_buffers);
+                            }
+                            if index_buffer.is_some() {
+                                self.index_buffers.insert(text.id, index_buffer.unwrap());
+                            }
                         }
-
-                        // Add four spaces
-                        if character == '\t' {
-                            x += 4.0 * (fs_scale * space_glyph_advance as f32 + text.kerning);
-                            continue;
-                        }
-
-                        let glyph_id = font_face.glyph_index(character).unwrap_or(question_mark_id);
-
-                        // Unwrap safety: a FONT atlas will always have handle to the individual characters
-                        let font_handles = font.atlas.texture_handles.as_ref().unwrap();
-                        let font_textures = &font.atlas.textures;
-
-                        // Unwrap safety: there is always a handle to match the glyph id for all glyphs within a font
-                        let handle = *font_handles.get(&glyph_id.0).unwrap();
-
-                        // The texture coords within the atlas are in pixel space
-                        let rect = font_textures[handle];
-
-                        // Convert to texture space by dividing by the width and height
-                        let uvs = Rect {
-                            min: Vector2 {
-                                x: rect.min.x as f32 / font.atlas.size.x,
-                                y: rect.min.y as f32 / font.atlas.size.y,
-                            },
-                            max: Vector2 {
-                                x: rect.max.x as f32 / font.atlas.size.x,
-                                y: rect.max.y as f32 / font.atlas.size.y,
-                            },
-                        };
-
-                        let quad_plane_bounds = font_face.glyph_bounding_box(glyph_id).unwrap();
-
-                        // Creare a bounding box out of the glyph
-                        let mut quad_rect = Rect {
-                            min: Vector2::new(
-                                quad_plane_bounds.x_min as f32,
-                                quad_plane_bounds.y_min as f32,
-                            ),
-                            max: Vector2::new(
-                                quad_plane_bounds.x_max as f32,
-                                quad_plane_bounds.y_max as f32,
-                            ),
-                        };
-
-                        // Scale the bounding box
-                        quad_rect.min *= fs_scale;
-                        quad_rect.max *= fs_scale;
-
-                        // Position it accordingly
-                        quad_rect.min += Vector2::new(x, y);
-                        quad_rect.max += Vector2::new(x, y);
-
-                        // Pixel space to normalized device coordinates:
-                        // ndc_x = ((pixel_x / screen_width) * 2) - 1
-                        // (ndc rectangle (scaled) + ndc translation) - 1
-                        let ndc_rect = Rect {
-                            min: Vector2 {
-                                x: ((((quad_rect.min.x * transform.scale.x
-                                    / vp.config.width as f32)
-                                    * 2.0)
-                                    + ((transform.translation.x / vp.config.width as f32) * 2.0))
-                                    - 1.0),
-                                y: ((((quad_rect.min.y * transform.scale.y
-                                    / vp.config.height as f32)
-                                    * 2.0)
-                                    + ((transform.translation.y / vp.config.height as f32) * 2.0))
-                                    - 1.0),
-                            },
-                            max: Vector2 {
-                                x: ((((quad_rect.max.x * transform.scale.x
-                                    / vp.config.width as f32)
-                                    * 2.0)
-                                    + ((transform.translation.x / vp.config.width as f32) * 2.0))
-                                    - 1.0),
-                                y: ((((quad_rect.max.y * transform.scale.y
-                                    / vp.config.height as f32)
-                                    * 2.0)
-                                    + ((transform.translation.y / vp.config.height as f32) * 2.0))
-                                    - 1.0),
-                            },
-                        };
-
-                        let quad = Primitive::new_quad(ndc_rect, uvs, text.color);
-
-                        let (vertices, indices) = match quad {
-                            Primitive::Quad(data) => (data.vertices, data.indices),
-                            _ => unreachable!(),
-                        };
-
-                        // Create buffers with the quad vertex data
-                        let vb = SunBuffer::new_with_data(
-                            "quad_vb",
-                            wgpu::BufferUsages::VERTEX,
-                            bytemuck::cast_slice(&vertices),
-                            self.device.as_ref().unwrap(),
-                        );
-
-                        let ib = SunBuffer::new_with_data(
-                            "quad_ib",
-                            wgpu::BufferUsages::INDEX,
-                            bytemuck::cast_slice(&indices),
-                            self.device.as_ref().unwrap(),
-                        );
-
-                        vertex_buffers.push(vb);
-                        index_buffer = Some(ib);
-
-                        // After each letter add the needed space for the next
-                        if index < characters_count - 1 {
-                            let advance = font_face.glyph_hor_advance(glyph_id).unwrap();
-                            x += fs_scale * advance as f32 + text.kerning;
-                        }
-                    }
-
-                    // Send change event with the changed entity to indicate we have created the buffers and rest viewport if changed
-                    if text.changed {
-                        let e = entity.clone();
-                        let mut text_changed = text.clone();
-
-                        text_changed.changed = false;
-
-                        let task = Box::new(move || {
-                            vec![CommandEvent::SignalChange((
-                                e,
-                                Some(ChangeComponentState::Text(text_changed.clone())),
-                            ))]
-                        });
-
-                        let cmd = Command::new("sun", CommandType::Other, None, Some(task));
-                        self.commands.push(cmd);
-                        self.ui_id = e;
-                    }
-
-                    // Reset vieport state
-                    if vp.changed {
-                        vp.changed = false;
-                    }
-                    if !vertex_buffers.is_empty() {
-                        self.vertex_buffers.insert(text.id, vertex_buffers);
-                    }
-                    if index_buffer.is_some() {
-                        self.index_buffers.insert(text.id, index_buffer.unwrap());
                     }
                 }
             }
@@ -435,7 +295,7 @@ impl Sun {
             .models
             .sort_by(|a, b| a.1.translation.z.total_cmp(&b.1.translation.z));
 
-        let text_desc = render_desc.text_desc;
+        let ui_desc = render_desc.ui_desc;
 
         // Get the viewport for the requested window
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
@@ -529,9 +389,11 @@ impl Sun {
 
                 // TODO (@A40): Get pipeline from material!
                 let text_pipeline = self.pipelines.get("text_shader.wgsl");
+                let quad_pipeline = self.pipelines.get("quad_shader.wgsl");
 
                 if let Some(pipe) = text_pipeline {
-                    // Text Render Pass
+                    // UI Render Pass
+
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -546,20 +408,25 @@ impl Sun {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
-                    rpass.set_pipeline(&pipe.pipeline);
 
-                    for (_, text, _transform) in text_desc.texts {
-                        let vbs = self.vertex_buffers.get(&text.id);
-                        let ib = self.index_buffers.get(&text.id);
-                        let texture_bind_group = self.bind_groups.get(&text.font);
+                    for (ui, _transform) in ui_desc.uis {
+                        match ui.ui_type {
+                            UIType::Container(_) => todo!(),
+                            UIType::Text(text) => {
+                                rpass.set_pipeline(&pipe.pipeline);
+                                let vbs = self.vertex_buffers.get(&text.id);
+                                let ib = self.index_buffers.get(&text.id);
+                                let texture_bind_group = self.bind_groups.get(&text.font);
 
-                        if vbs.is_some() && ib.is_some() && texture_bind_group.is_some() {
-                            for buf in vbs.unwrap() {
-                                rpass.draw_textured_quad(
-                                    buf,
-                                    ib.unwrap(),
-                                    texture_bind_group.unwrap(),
-                                );
+                                if vbs.is_some() && ib.is_some() && texture_bind_group.is_some() {
+                                    for buf in vbs.unwrap() {
+                                        rpass.draw_textured_quad(
+                                            buf,
+                                            ib.unwrap(),
+                                            texture_bind_group.unwrap(),
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -610,7 +477,6 @@ impl Default for Sun {
 
             proxy: None,
 
-            ui_id: Entity::PLACEHOLDER,
             frame_time: web_time::Instant::now(),
             time: web_time::Instant::now(),
         }
@@ -933,30 +799,33 @@ impl App for Sun {
     }
 
     fn update(&mut self, _delta_time: f32) -> Vec<Command> {
-        if self.ui_id != Entity::PLACEHOLDER {
-            let e = self.ui_id.clone();
-            let renderer_time = self.time.elapsed().as_secs_f32();
+        let renderer_time = self.time.elapsed().as_secs_f32();
 
-            let frame_time = self.frame_time.elapsed().as_nanos() as f32 / 1_000_000.0;
-            self.frame_time = web_time::Instant::now();
+        let frame_time = self.frame_time.elapsed().as_nanos() as f32 / 1_000_000.0;
+        self.frame_time = web_time::Instant::now();
 
-            if renderer_time > 0.01 {
-                self.time = web_time::Instant::now();
-                let text_changed = TextComponent {
-                    changed: true,
-                    text: format!("Render Time: {}ms", frame_time),
-                    ..Default::default()
-                };
-                let task = Box::new(move || {
-                    vec![CommandEvent::SignalChange((
-                        e,
-                        Some(ChangeComponentState::Text(text_changed.clone())),
-                    ))]
-                });
+        if renderer_time > 0.01 {
+            self.time = web_time::Instant::now();
+            let text_changed = TextComponent {
+                changed: true,
+                text: format!("Render Time: {}ms", frame_time),
+                ..Default::default()
+            };
 
-                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
-                self.commands.push(cmd);
-            }
+            let ui_changed = UIComponent {
+                id: "stats".to_string(),
+                ui_type: UIType::Text(text_changed),
+            };
+
+            let task = Box::new(move || {
+                vec![CommandEvent::SignalChange(ChangeComponentState::UI((
+                    ui_changed.clone(),
+                    None,
+                )))]
+            });
+
+            let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+            self.commands.push(cmd);
         }
 
         self.commands.drain(..).collect()
@@ -981,7 +850,7 @@ pub struct ViewportDesc {
 #[derive(Debug)]
 pub struct Viewport {
     desc: ViewportDesc,
-    config: wgpu::SurfaceConfiguration,
+    pub config: wgpu::SurfaceConfiguration,
     changed: bool,
 }
 
