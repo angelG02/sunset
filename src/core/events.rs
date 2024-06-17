@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use bevy_ecs::entity::Entity;
-
 use crate::prelude::{
     model_component::ModelComponent, pipeline::PipelineDesc, sun::RenderFrameDesc,
     windower::NewWindowProps, Asset, ChangeComponentState,
@@ -22,7 +20,7 @@ pub enum CommandEvent {
     RequestCreateModel(ModelComponent),
     ChangedAssets(Vec<String>),
 
-    SignalChange((Entity, Option<ChangeComponentState>)),
+    SignalChange(ChangeComponentState),
 
     Exit,
     None,

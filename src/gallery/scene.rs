@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use bevy_ecs::{
     bundle::Bundle,
@@ -30,8 +32,9 @@ use crate::{
         resources::model::RenderModelDesc,
         state,
         sun::RenderFrameDesc,
-        text_component::{RenderTextDesc, TextComponent},
+        text_component::{RenderUIDesc, TextComponent},
         transform_component::TransformComponent,
+        ui_component::{UIComponent, UIType},
     },
 };
 
@@ -41,6 +44,9 @@ pub struct Scene {
     pub commands: Vec<Command>,
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
+
+    // Map a string id to an ECS entity id
+    pub ui_handles: HashMap<String, Entity>,
 
     // Temp cam controls
     cam_speed: f32,
@@ -277,7 +283,17 @@ impl App for Scene {
             color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             ..Default::default()
         };
-        self.world.spawn_empty().insert((text_transform, text));
+
+        let ui_text = UIComponent {
+            id: "stats".to_string(),
+            ui_type: UIType::Text(text),
+        };
+
+        let mut e = self.world.spawn_empty();
+
+        self.ui_handles.insert(ui_text.id.clone(), e.id());
+
+        e.insert((text_transform, ui_text));
 
         self.commands.append(&mut vec![
             load_missing_tex,
@@ -306,40 +322,42 @@ impl App for Scene {
         _delta_time: f32,
     ) {
         match event {
-            CommandEvent::SignalChange((entity, component)) => {
-                if *entity == Entity::PLACEHOLDER {
-                    return;
-                }
+            CommandEvent::SignalChange(change_state) => {
+                match change_state {
+                    // Replace/Add Text
+                    crate::prelude::ChangeComponentState::UI((changed_ui, changed_transform)) => {
+                        let id = &changed_ui.id;
+                        if let Some(entity) = self.ui_handles.get(id) {
+                            // Replace or spawn component of the requested type on the provided entity
+                            if let Some(mut ui) = self.world.get_mut::<UIComponent>(*entity) {
+                                *ui = changed_ui.clone();
+                            } else {
+                                self.world.entity_mut(*entity).insert(changed_ui.clone());
+                            }
 
-                if let Some(change_state) = component {
-                    // Replace or spawn component of the requested type on the provided entity
-                    match change_state {
-                        // Replace/Add Text
-                        crate::prelude::ChangeComponentState::Text(changed_text) => {
-                            if let Some(mut text) = self.world.get_mut::<TextComponent>(*entity) {
-                                *text = changed_text.clone();
-                            } else {
-                                self.world.entity_mut(*entity).insert(changed_text.clone());
+                            if changed_transform.is_some() {
+                                if let Some(mut transform) =
+                                    self.world.get_mut::<TransformComponent>(*entity)
+                                {
+                                    *transform = changed_transform.clone().unwrap();
+                                } else {
+                                    self.world
+                                        .entity_mut(*entity)
+                                        .insert(changed_transform.clone().unwrap());
+                                }
                             }
-                        }
-                        // Replace/Add Transform
-                        crate::prelude::ChangeComponentState::Transform(changed_transform) => {
-                            if let Some(mut transform) =
-                                self.world.get_mut::<TransformComponent>(*entity)
-                            {
-                                *transform = changed_transform.clone();
-                            } else {
-                                self.world
-                                    .entity_mut(*entity)
-                                    .insert(changed_transform.clone());
-                            }
-                        }
-                        // Replace/Add Model
-                        crate::prelude::ChangeComponentState::Model(changed_model) => {
-                            if let Some(mut model) = self.world.get_mut::<ModelComponent>(*entity) {
-                                *model = changed_model.clone();
-                            } else {
-                                self.world.entity_mut(*entity).insert(changed_model.clone());
+                        } else {
+                            let mut entity = self.world.spawn_empty();
+                            match change_state {
+                                // Add Text Entity
+                                crate::prelude::ChangeComponentState::UI((ui, transform)) => {
+                                    entity.insert(ui.clone());
+
+                                    if let Some(trans) = transform {
+                                        entity.insert(trans.clone());
+                                    }
+                                    self.ui_handles.insert(id.clone(), entity.id());
+                                }
                             }
                         }
                     }
@@ -382,15 +400,15 @@ impl App for Scene {
                 };
 
                 // Gether text and their transforms from the scene
-                let mut text_from_scene =
-                    self.world
-                        .query::<(Entity, &mut TextComponent, &TransformComponent)>();
+                let mut text_from_scene = self
+                    .world
+                    .query::<(&mut UIComponent, &TransformComponent)>();
 
-                let mut texts = vec![];
+                let mut uis = vec![];
 
-                for (e, text, transform) in text_from_scene.iter(&self.world) {
+                for (ui, transform) in text_from_scene.iter(&self.world) {
                     // info!("{text:?}");
-                    texts.push((e, text.clone(), transform.clone()));
+                    uis.push((ui.clone(), transform.clone()));
                 }
 
                 // Create and send the render data (models + text for now)
@@ -399,7 +417,7 @@ impl App for Scene {
                         models,
                         active_camera: active_cam,
                     },
-                    text_desc: RenderTextDesc { texts },
+                    ui_desc: RenderUIDesc { uis },
                     window_id,
                 };
                 self.proxy
