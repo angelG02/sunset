@@ -1,5 +1,4 @@
 use cgmath::{Vector2, Vector4};
-use tracing::info;
 
 use crate::prelude::{
     primitive::{Primitive, Quad2DVertex},

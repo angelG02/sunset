@@ -32,7 +32,7 @@ use crate::{
         resources::model::RenderModelDesc,
         state,
         sun::RenderFrameDesc,
-        text_component::{RenderUIDesc, TextDesc},
+        text_component::RenderUIDesc,
         transform_component::TransformComponent,
         ui_component::{BorderDesc, ContainerDesc, ScreenCoordinate, UIComponent, UIType},
     },
