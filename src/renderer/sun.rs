@@ -886,10 +886,14 @@ impl App for Sun {
                 ui_type: UIType::Text(text_changed),
             };
 
+            let mut ui_changed_trans = TransformComponent::zero();
+            ui_changed_trans.scale.x += 150.0;
+            ui_changed_trans.scale.y += 150.0;
+
             let task = Box::new(move || {
                 vec![CommandEvent::SignalChange(ChangeComponentState::UI((
                     ui_changed.clone(),
-                    None,
+                    Some(ui_changed_trans),
                 )))]
             });
 

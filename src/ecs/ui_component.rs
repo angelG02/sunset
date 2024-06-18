@@ -1,5 +1,5 @@
 use bevy_ecs::component::Component;
-use cgmath::{Vector2, Vector4, Zero};
+use cgmath::{Vector2, Vector4};
 
 use crate::prelude::{
     primitive::{Primitive, Quad2DVertex},
@@ -34,11 +34,22 @@ impl Default for BorderDesc {
     }
 }
 
+/// Describes a screen coordinate value
+#[derive(Debug, Clone)]
+pub enum ScreenCoordinate {
+    /// Define the value in pixels
+    Pixels(f32),
+    /// Defined in percentages of the parent (0..100)
+    Percentage(u8),
+}
+
 /// A description that defines UI bounds, color and border
 #[derive(Debug, Clone)]
 pub struct ContainerDesc {
-    // The window coordinates of the min and max points of the container
-    pub bounds: Rect<f32>,
+    // The width of the container (either in pixels or percentages)
+    pub width: ScreenCoordinate,
+    // The height of the container (either in pixels or percentages)
+    pub height: ScreenCoordinate,
     // RGBA color with 0..1 range
     pub color: Vector4<f32>,
     // Border descritption
@@ -56,10 +67,8 @@ impl Default for ContainerDesc {
                 width: 0.0,
                 color: Vector4::new(1.0, 1.0, 1.0, 1.0),
             },
-            bounds: Rect {
-                min: Vector2::zero(),
-                max: Vector2::zero(),
-            },
+            width: ScreenCoordinate::Percentage(0),
+            height: ScreenCoordinate::Percentage(0),
         }
     }
 }
@@ -70,9 +79,34 @@ impl ContainerDesc {
         transform: &TransformComponent,
         vp: &Viewport, // TODO: This should be parent width and height
     ) -> (Vec<[Quad2DVertex; 4]>, [u32; 6]) {
-        let mut quad_rect = self.bounds;
-        quad_rect.min.y -= (self.bounds.max.y - self.bounds.min.y) + self.border.width;
-        quad_rect.max.y -= (self.bounds.max.y - self.bounds.min.y) + self.border.width;
+        let height = match self.height {
+            ScreenCoordinate::Pixels(value) => value,
+            ScreenCoordinate::Percentage(value) => {
+                vp.config.height as f32 * value as f32 * 0.01 - self.border.width * 2.0
+            }
+        };
+
+        let width = match self.width {
+            ScreenCoordinate::Pixels(value) => value,
+            ScreenCoordinate::Percentage(value) => {
+                vp.config.width as f32 * value as f32 * 0.01 - self.border.width * 2.0
+            }
+        };
+
+        // Anchor: Top-left corner
+        let bounds = Rect {
+            min: [transform.translation.x, transform.translation.y].into(),
+            max: [
+                transform.translation.x + width,
+                transform.translation.y + height,
+            ]
+            .into(),
+        };
+
+        let mut quad_rect = bounds.clone();
+
+        quad_rect.min.y -= (bounds.max.y - bounds.min.y) + self.border.width;
+        quad_rect.max.y -= (bounds.max.y - bounds.min.y) + self.border.width;
 
         quad_rect.min.x += self.border.width;
         quad_rect.max.x += self.border.width;

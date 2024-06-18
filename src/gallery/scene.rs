@@ -29,12 +29,12 @@ use crate::{
     },
     prelude::{
         camera_component::CamType,
-        resources::{model::RenderModelDesc, rect::Rect},
+        resources::model::RenderModelDesc,
         state,
         sun::RenderFrameDesc,
         text_component::{RenderUIDesc, TextDesc},
         transform_component::TransformComponent,
-        ui_component::{BorderDesc, ContainerDesc, UIComponent, UIType},
+        ui_component::{BorderDesc, ContainerDesc, ScreenCoordinate, UIComponent, UIType},
     },
 };
 
@@ -270,47 +270,25 @@ impl App for Scene {
             None,
         );
 
-        // Manully spawn entity with text for test
-
-        let mut text_transform = TransformComponent::zero();
-        text_transform.scale.x += 150.0;
-        text_transform.scale.y += 150.0;
-        text_transform.translation.x += 50.0;
-        text_transform.translation.y += 160.0;
-        text_transform.translation.z = 0.0;
-
-        let text = TextDesc {
-            text: "Шо стааа Генкатах е тукаааааааа".to_string(),
-            color: Vector4::new(1.0, 1.0, 1.0, 1.0),
-            ..Default::default()
-        };
-
-        let ui_text = UIComponent {
-            id: uuid::Uuid::new_v4(),
-            string_id: "stats".to_string(),
-            ui_type: UIType::Text(text),
-        };
-
-        let mut e = self.world.spawn_empty();
-
-        self.ui_handles.insert(ui_text.string_id.clone(), e.id());
-
-        e.insert((text_transform, ui_text));
-
         //Manully spawn Quad UI element for test
 
         let mut quad_transform = TransformComponent::zero();
         quad_transform.translation.z = 0.0;
 
         let ui_quad = UIComponent {
+            // Id uesd for creating & indexing into vertex/index buffers in renderer
             id: uuid::Uuid::new_v4(),
+            // Id uesd for parenting and accessing through events
             string_id: "test".to_string(),
+            // Define our UI container
             ui_type: UIType::Container(ContainerDesc {
-                bounds: Rect {
-                    min: [0.0, 0.0].into(),
-                    max: [100.0, 100.0].into(),
-                },
+                // Set width to 25% of the parent
+                width: ScreenCoordinate::Percentage(25),
+                // Set height to 100% of the parent
+                height: ScreenCoordinate::Percentage(100),
+                // Set color
                 color: Vector4::new(4.0 / 255.0, 229.0 / 255.0, 218.0 / 255.0, 1.0),
+                // Set border color and width
                 border: BorderDesc {
                     color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
                     width: 10.0,

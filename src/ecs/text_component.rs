@@ -1,4 +1,5 @@
 use cgmath::{Vector2, Vector4};
+use tracing::info;
 
 use crate::prelude::{
     primitive::{Primitive, Quad2DVertex},
@@ -64,6 +65,7 @@ impl TextDesc {
         let question_mark_id = font_face
             .glyph_index('?')
             .expect("How TF can this font not have '?'");
+        let qmark_plane_bounds = font_face.glyph_bounding_box(question_mark_id).unwrap();
 
         let characters = self.text.chars();
         let characters_count = self.text.len();
@@ -144,16 +146,18 @@ impl TextDesc {
             let quad_plane_bounds = font_face.glyph_bounding_box(glyph_id).unwrap();
 
             // Creare a bounding box out of the glyph
+            // Anchor: Top-left corner
             let mut quad_rect = Rect {
-                min: Vector2::new(
-                    quad_plane_bounds.x_min as f32,
-                    quad_plane_bounds.y_min as f32,
-                ),
+                min: Vector2::new(transform.translation.x, transform.translation.y),
                 max: Vector2::new(
-                    quad_plane_bounds.x_max as f32,
-                    quad_plane_bounds.y_max as f32,
+                    transform.translation.x + quad_plane_bounds.width() as f32,
+                    transform.translation.y + quad_plane_bounds.height() as f32,
                 ),
             };
+
+            // Position it according to the question mark's plane bounds
+            quad_rect.min.y -= qmark_plane_bounds.height() as f32;
+            quad_rect.max.y -= qmark_plane_bounds.height() as f32;
 
             // Scale the bounding box
             quad_rect.min *= fs_scale;
@@ -165,6 +169,7 @@ impl TextDesc {
 
             // Pixel space to normalized device coordinates:
             // ndc_x = ((pixel_x / screen_width) * 2) - 1
+            // ndc_y = ((pixel_y / screen_height) * 2) + 1 -> We want top left to be 0,0
             // (ndc rectangle (scaled) + ndc translation) - 1
             let ndc_rect = Rect {
                 min: Vector2 {
@@ -172,7 +177,8 @@ impl TextDesc {
                         + ((transform.translation.x / vp.config.width as f32) * 2.0))
                         - 1.0),
                     y: ((((quad_rect.min.y * transform.scale.y / vp.config.height as f32) * 2.0)
-                        + ((transform.translation.y / vp.config.height as f32) * 2.0))
+                        - (((transform.translation.y) / vp.config.height as f32) * 2.0)
+                        + 2.0)
                         - 1.0),
                 },
                 max: Vector2 {
@@ -180,7 +186,8 @@ impl TextDesc {
                         + ((transform.translation.x / vp.config.width as f32) * 2.0))
                         - 1.0),
                     y: ((((quad_rect.max.y * transform.scale.y / vp.config.height as f32) * 2.0)
-                        + ((transform.translation.y / vp.config.height as f32) * 2.0))
+                        - ((transform.translation.y / vp.config.height as f32) * 2.0)
+                        + 2.0)
                         - 1.0),
                 },
             };
