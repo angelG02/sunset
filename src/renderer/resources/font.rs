@@ -14,6 +14,7 @@ use crate::prelude::resources::image::Image;
 
 use super::{texture_atlas::TextureAtlas, texture_atlas_builder::TextureAtlasBuilder};
 
+#[derive(Debug, Clone)]
 pub struct SunFont {
     pub font_file: String,
     pub atlas: TextureAtlas,

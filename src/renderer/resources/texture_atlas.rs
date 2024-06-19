@@ -4,6 +4,8 @@ use cgmath::Vector2;
 
 use super::{image::Image, rect::Rect};
 
+#[derive(Debug, Clone)]
+
 pub struct TextureAtlas {
     // The texture of the atlas
     pub image: Image,

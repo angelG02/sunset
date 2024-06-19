@@ -10,7 +10,9 @@ use crate::{
         command_queue::{Command, Task},
         events::CommandEvent,
     },
-    prelude::command_queue::CommandType,
+    prelude::{
+        command_queue::CommandType, window_component::WindowContainer, ChangeComponentState,
+    },
 };
 
 #[derive(Default, Debug, Clone)]
@@ -73,7 +75,13 @@ impl Windower {
                 element_id: args_vec[0].to_string(),
             });
 
-            vec![event]
+            let event1 =
+                CommandEvent::SignalChange(ChangeComponentState::Window(WindowContainer {
+                    width: args_vec[1].parse::<u32>().unwrap_or(1024) as f32,
+                    height: args_vec[2].parse::<u32>().unwrap_or(1024) as f32,
+                }));
+
+            vec![event, event1]
         };
 
         Some(Box::new(cmd))

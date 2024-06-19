@@ -1,3 +1,5 @@
+use crate::prelude::resources::font::SunFont;
+
 pub mod camera_component;
 pub mod model_component;
 pub mod name_component;
@@ -15,4 +17,5 @@ pub enum ChangeComponentState {
         ),
     ),
     Window(window_component::WindowContainer),
+    FontAtlas(SunFont),
 }

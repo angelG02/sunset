@@ -30,8 +30,8 @@ use crate::{
         resources::model::RenderModelDesc,
         state,
         sun::RenderFrameDesc,
-        text_component::RenderUIDesc,
         transform_component::TransformComponent,
+        ui_component::RenderUIDesc,
         ui_component::{BorderDesc, ContainerDesc, ScreenCoordinate, UIComponent, UIType},
     },
 };
@@ -294,6 +294,7 @@ impl App for Scene {
                 },
                 ..Default::default()
             }),
+            visible: true,
         };
 
         let mut e = self.world.spawn_empty();
@@ -370,17 +371,7 @@ impl App for Scene {
                     CameraComponent::default()
                 };
 
-                // Gether text and their transforms from the scene
-                let mut text_from_scene = self
-                    .world
-                    .query::<(&mut UIComponent, &TransformComponent)>();
-
-                let mut uis = vec![];
-
-                for (ui, transform) in text_from_scene.iter(&self.world) {
-                    // info!("{text:?}");
-                    uis.push((ui.clone(), transform.clone()));
-                }
+                let ui_geometry = self.ui_handler.tessellate(&mut self.world);
 
                 // Create and send the render data (models + text for now)
                 let render_desc = RenderFrameDesc {
@@ -388,7 +379,9 @@ impl App for Scene {
                         models,
                         active_camera: active_cam,
                     },
-                    ui_desc: RenderUIDesc { uis },
+                    ui_desc: RenderUIDesc {
+                        geometry: ui_geometry,
+                    },
                     window_id,
                 };
                 self.proxy

@@ -10,9 +10,10 @@ use crate::{
         camera_component::{CameraComponent, ModelUniform},
         command_queue::CommandType,
         state,
-        text_component::{RenderUIDesc, TextDesc},
+        text_component::TextDesc,
         transform_component::TransformComponent,
-        ui_component::{UIComponent, UIType},
+        ui_component::{RenderUIDesc, UIComponent, UIType},
+        window_component::WindowContainer,
         Asset, AssetStatus, AssetType, ChangeComponentState,
     },
 };
@@ -56,7 +57,7 @@ pub struct Sun {
 
     pub quad_instance_buffer: Option<SunBuffer>,
 
-    pub vertex_buffers: HashMap<uuid::Uuid, Vec<SunBuffer>>,
+    pub vertex_buffers: HashMap<uuid::Uuid, Vec<(SunBuffer, u16)>>,
     pub index_buffers: HashMap<uuid::Uuid, SunBuffer>,
     pub bind_groups: HashMap<String, wgpu::BindGroup>,
 
@@ -208,126 +209,45 @@ impl Sun {
         // We get the viewport so we can calculate Normalized device coordinates for the position of the character in 2D
         if let Some(vp) = self.viewports.get_mut(&render_desc.window_id) {
             // (Re)Generate text buffers only if the text has changed since last gen
-            for (ui, transform) in &render_desc.ui_desc.uis {
+            let indices = &render_desc.ui_desc.geometry.1;
+            let vertex_data = &render_desc.ui_desc.geometry.0;
+            for ui_data in vertex_data {
                 let mut vertex_buffers = vec![];
                 let mut index_buffer = None;
 
-                match ui.clone().ui_type {
-                    UIType::Container(ui_container) => {
-                        if ui_container.changed || vp.changed {
-                            // Create geometry out of the text and its transform
-                            let (vertices_array, indices) = ui_container.tesselate(transform, &vp);
+                let ui_data_array = ui_data.vertices.clone();
 
-                            // Create buffers with the quad vertex data
-                            let ib = SunBuffer::new_with_data(
-                                "quad_ib",
-                                wgpu::BufferUsages::INDEX,
-                                bytemuck::cast_slice(&indices),
-                                self.device.as_ref().unwrap(),
-                            );
-                            index_buffer = Some(ib);
+                if ui_data.changed || vp.changed {
+                    for (data, z_index) in ui_data_array {
+                        let vb = SunBuffer::new_with_data(
+                            "quad_vb",
+                            wgpu::BufferUsages::VERTEX,
+                            bytemuck::cast_slice(&data),
+                            self.device.as_ref().unwrap(),
+                        );
 
-                            for vertices in vertices_array {
-                                let vb = SunBuffer::new_with_data(
-                                    "quad_vb",
-                                    wgpu::BufferUsages::VERTEX,
-                                    bytemuck::cast_slice(&vertices),
-                                    self.device.as_ref().unwrap(),
-                                );
-
-                                vertex_buffers.push(vb);
-                            }
-
-                            // Send change event to the desired UI handle
-                            // to indicate we have created the buffers and rest viewport if changed
-                            if ui_container.changed {
-                                let mut ui_container_changed = ui_container.clone();
-
-                                ui_container_changed.changed = false;
-
-                                let ui_changed = UIComponent {
-                                    id: ui.id.clone(),
-                                    string_id: ui.string_id.clone(),
-                                    ui_type: UIType::Container(ui_container_changed),
-                                };
-
-                                let task = Box::new(move || {
-                                    vec![CommandEvent::SignalChange(ChangeComponentState::UI((
-                                        ui_changed.clone(),
-                                        None,
-                                    )))]
-                                });
-
-                                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
-                                self.commands.push(cmd);
-                            }
-                        }
+                        vertex_buffers.push((vb, z_index));
                     }
-                    UIType::Text(text) => {
-                        if text.changed || vp.changed {
-                            let Some(font) = self.fonts.get(&text.font) else {
-                                error!("No font found with name: {}", text.font);
-                                return;
-                            };
-
-                            // Create geometry out of the text and its transform
-                            let (vertices_array, indices) = text.tesselate(font, transform, &vp);
-
-                            // Create buffers with the quad vertex data
-                            let ib = SunBuffer::new_with_data(
-                                "quad_ib",
-                                wgpu::BufferUsages::INDEX,
-                                bytemuck::cast_slice(&indices),
-                                self.device.as_ref().unwrap(),
-                            );
-                            index_buffer = Some(ib);
-
-                            for vertices in vertices_array {
-                                let vb = SunBuffer::new_with_data(
-                                    "quad_vb",
-                                    wgpu::BufferUsages::VERTEX,
-                                    bytemuck::cast_slice(&vertices),
-                                    self.device.as_ref().unwrap(),
-                                );
-
-                                vertex_buffers.push(vb);
-                            }
-
-                            // Send change event to the desired UI handle
-                            // to indicate we have created the buffers and rest viewport if changed
-                            if text.changed {
-                                let mut text_changed = text.clone();
-
-                                text_changed.changed = false;
-
-                                let ui_changed = UIComponent {
-                                    id: ui.id.clone(),
-                                    string_id: ui.string_id.clone(),
-                                    ui_type: UIType::Text(text_changed),
-                                };
-
-                                let task = Box::new(move || {
-                                    vec![CommandEvent::SignalChange(ChangeComponentState::UI((
-                                        ui_changed.clone(),
-                                        None,
-                                    )))]
-                                });
-
-                                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
-                                self.commands.push(cmd);
-                            }
-                        }
-                    }
+                    // Create buffers with the quad vertex data
+                    let ib = SunBuffer::new_with_data(
+                        "quad_ib",
+                        wgpu::BufferUsages::INDEX,
+                        bytemuck::cast_slice(indices),
+                        self.device.as_ref().unwrap(),
+                    );
+                    index_buffer = Some(ib);
                 }
+
                 // Reset vieport state
                 if vp.changed {
                     vp.changed = false;
                 }
                 if !vertex_buffers.is_empty() {
-                    self.vertex_buffers.insert(ui.id, vertex_buffers);
+                    vertex_buffers.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+                    self.vertex_buffers.insert(ui_data.id, vertex_buffers);
                 }
                 if index_buffer.is_some() {
-                    self.index_buffers.insert(ui.id, index_buffer.unwrap());
+                    self.index_buffers.insert(ui_data.id, index_buffer.unwrap());
                 }
             }
         }
@@ -427,7 +347,7 @@ impl Sun {
                 // Submit all render commands to the command queue
                 self.queue.as_ref().unwrap().submit(Some(encoder.finish()));
             }
-            // Render Text
+            // Render UI
             // Create command encoder for model render commands
             let mut encoder = self.device.as_ref().unwrap().create_command_encoder(
                 &wgpu::CommandEncoderDescriptor {
@@ -456,16 +376,16 @@ impl Sun {
                     occlusion_query_set: None,
                 });
 
-                for (ui, _transform) in ui_desc.uis {
-                    let vertex_buffers = self.vertex_buffers.get(&ui.id);
-                    let index_buffer = self.index_buffers.get(&ui.id);
-                    match ui.ui_type {
+                for ui_data in &ui_desc.geometry.0 {
+                    let vertex_buffers = self.vertex_buffers.get(&ui_data.id);
+                    let index_buffer = self.index_buffers.get(&ui_data.id);
+                    match &ui_data.ui_type {
                         UIType::Container(_) => {
                             if let Some(pipe) = quad_pipeline {
                                 rpass.set_pipeline(&pipe.pipeline);
 
                                 if vertex_buffers.is_some() && index_buffer.is_some() {
-                                    for buf in vertex_buffers.unwrap() {
+                                    for (buf, _) in vertex_buffers.unwrap() {
                                         // TODO: Check for texture in quad data and set pipeline accordingly
                                         rpass.draw_colored_quad(buf, index_buffer.unwrap());
                                     }
@@ -481,7 +401,7 @@ impl Sun {
                                     && index_buffer.is_some()
                                     && texture_bind_group.is_some()
                                 {
-                                    for buf in vertex_buffers.unwrap() {
+                                    for (buf, _) in vertex_buffers.unwrap() {
                                         rpass.draw_textured_quad(
                                             buf,
                                             index_buffer.unwrap(),
@@ -610,6 +530,16 @@ impl App for Sun {
                             Ok(font) => {
                                 info!("Successfully created font: {}", font.font_file);
 
+                                let font_copy = font.clone();
+                                let task = Box::new(move || {
+                                    vec![CommandEvent::SignalChange(
+                                        ChangeComponentState::FontAtlas(font_copy.clone()),
+                                    )]
+                                });
+
+                                let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                                self.commands.push(cmd);
+
                                 let Ok(font_atlas_texture) = SunTexture::from_image(
                                     &font.font_file,
                                     self.device.as_ref().unwrap(),
@@ -718,6 +648,17 @@ impl App for Sun {
                     }
                     // On macos the window needs to be redrawn manually after resizing
                     viewport.desc.window.request_redraw();
+
+                    let width = new_size.width as f32;
+                    let height = new_size.height as f32;
+                    let task = Box::new(move || {
+                        vec![CommandEvent::SignalChange(ChangeComponentState::Window(
+                            WindowContainer { width, height },
+                        ))]
+                    });
+
+                    let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+                    self.commands.push(cmd);
                 }
             }
             WindowEvent::CloseRequested => {
@@ -884,6 +825,7 @@ impl App for Sun {
                 id: uuid::Uuid::new_v4(),
                 string_id: "stats".to_string(),
                 ui_type: UIType::Text(text_changed),
+                visible: true,
             };
 
             let mut ui_changed_trans = TransformComponent::zero();
