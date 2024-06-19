@@ -4,6 +4,7 @@ pub mod name_component;
 pub mod text_component;
 pub mod transform_component;
 pub mod ui_component;
+pub mod window_component;
 
 #[derive(Debug, Clone)]
 pub enum ChangeComponentState {
@@ -13,4 +14,5 @@ pub enum ChangeComponentState {
             Option<transform_component::TransformComponent>,
         ),
     ),
+    Window(window_component::WindowContainer),
 }

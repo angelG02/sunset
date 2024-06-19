@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use bevy_ecs::{
     bundle::Bundle,
@@ -38,6 +36,8 @@ use crate::{
     },
 };
 
+use super::ui_handler::UIHandler;
+
 #[derive(Default)]
 pub struct Scene {
     pub world: bevy_ecs::world::World,
@@ -45,8 +45,7 @@ pub struct Scene {
 
     pub proxy: Option<EventLoopProxy<CommandEvent>>,
 
-    // Map a string id to an ECS entity id
-    pub ui_handles: HashMap<String, Entity>,
+    pub ui_handler: UIHandler,
 
     // Temp cam controls
     cam_speed: f32,
@@ -299,7 +298,8 @@ impl App for Scene {
 
         let mut e = self.world.spawn_empty();
 
-        self.ui_handles.insert(ui_quad.string_id.clone(), e.id());
+        self.ui_handler
+            .add_handle(ui_quad.string_id.clone(), e.id());
 
         e.insert((quad_transform, ui_quad));
 
@@ -331,49 +331,8 @@ impl App for Scene {
     ) {
         match event {
             CommandEvent::SignalChange(change_state) => {
-                match change_state {
-                    // Replace/Add Text
-                    crate::prelude::ChangeComponentState::UI((changed_ui, changed_transform)) => {
-                        let id = &changed_ui.string_id;
-                        if let Some(entity) = self.ui_handles.get(id) {
-                            // Replace or spawn component of the requested type on the provided entity
-                            if let Some(mut ui) = self.world.get_mut::<UIComponent>(*entity) {
-                                *ui = UIComponent {
-                                    id: ui.id,
-                                    string_id: ui.string_id.clone(),
-                                    ui_type: changed_ui.ui_type.clone(),
-                                };
-                            } else {
-                                self.world.entity_mut(*entity).insert(changed_ui.clone());
-                            }
-
-                            if changed_transform.is_some() {
-                                if let Some(mut transform) =
-                                    self.world.get_mut::<TransformComponent>(*entity)
-                                {
-                                    *transform = changed_transform.clone().unwrap();
-                                } else {
-                                    self.world
-                                        .entity_mut(*entity)
-                                        .insert(changed_transform.clone().unwrap());
-                                }
-                            }
-                        } else {
-                            let mut entity = self.world.spawn_empty();
-                            match change_state {
-                                // Add Text Entity
-                                crate::prelude::ChangeComponentState::UI((ui, transform)) => {
-                                    entity.insert(ui.clone());
-
-                                    if let Some(trans) = transform {
-                                        entity.insert(trans.clone());
-                                    }
-                                    self.ui_handles.insert(id.clone(), entity.id());
-                                }
-                            }
-                        }
-                    }
-                }
+                self.ui_handler
+                    .on_change_component_state(change_state, &mut self.world);
             }
             _ => {}
         }
