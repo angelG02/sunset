@@ -37,7 +37,6 @@ impl UIHandler {
         // Left side-bar
         let mut quad_transform = TransformComponent::zero();
         quad_transform.translation.z = 0.0;
-        quad_transform.translation.x = 200.0;
 
         let ui_quad = UIComponent {
             // Id uesd for creating & indexing into vertex/index buffers in renderer
@@ -71,68 +70,36 @@ impl UIHandler {
 
         let mut quad_transform = TransformComponent::zero();
         quad_transform.translation.z = 1.0;
+        quad_transform.translation.y += 150.0;
 
-        // let ui_quad = UIComponent {
-        //     // Id uesd for creating & indexing into vertex/index buffers in renderer
-        //     id: uuid::Uuid::new_v4(),
-        //     // Id uesd for parenting and accessing through events
-        //     string_id: "test-child".to_string(),
-        //     parent_id: Some("test".into()),
-        //     // Define our UI container
-        //     ui_type: UIType::Container(ContainerDesc {
-        //         // Set width to 25% of the parent
-        //         width: ScreenCoordinate::Percentage(100),
-        //         // Set height to 100% of the parent
-        //         height: ScreenCoordinate::Percentage(50),
-        //         // Set color
-        //         color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
-        //         border: BorderDesc {
-        //             color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
-        //             width: 10.0,
-        //         },
-        //         ..Default::default()
-        //     }),
-        //     visible: true,
-        // };
+        let ui_quad = UIComponent {
+            // Id uesd for creating & indexing into vertex/index buffers in renderer
+            id: uuid::Uuid::new_v4(),
+            // Id uesd for parenting and accessing through events
+            string_id: "test-child".to_string(),
+            parent_id: Some("test".into()),
+            // Define our UI container
+            ui_type: UIType::Container(ContainerDesc {
+                // Set width to 100% of the parent
+                width: ScreenCoordinate::Percentage(100),
+                // Set height to 50% of the parent
+                height: ScreenCoordinate::Percentage(50),
+                // Set color
+                color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
+                border: BorderDesc {
+                    color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
+                    width: 10.0,
+                },
+                ..Default::default()
+            }),
+            visible: true,
+        };
 
-        // let mut e = world.spawn_empty();
+        let mut e = world.spawn_empty();
 
-        // self.add_handle(ui_quad.string_id.clone(), e.id());
+        self.add_handle(ui_quad.string_id.clone(), e.id());
 
-        // e.insert((quad_transform, ui_quad));
-
-        // let mut quad_transform = TransformComponent::zero();
-        // quad_transform.translation.z = 2.0;
-        // quad_transform.translation.x = 10.0;
-
-        // let ui_quad = UIComponent {
-        //     // Id uesd for creating & indexing into vertex/index buffers in renderer
-        //     id: uuid::Uuid::new_v4(),
-        //     // Id uesd for parenting and accessing through events
-        //     string_id: "test-child-child".to_string(),
-        //     parent_id: Some("test-child".into()),
-        //     // Define our UI container
-        //     ui_type: UIType::Container(ContainerDesc {
-        //         // Set width to 25% of the parent
-        //         width: ScreenCoordinate::Pixels(100.0),
-        //         // Set height to 100% of the parent
-        //         height: ScreenCoordinate::Percentage(50),
-        //         // Set color
-        //         color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
-        //         border: BorderDesc {
-        //             color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
-        //             width: 10.0,
-        //         },
-        //         ..Default::default()
-        //     }),
-        //     visible: true,
-        // };
-
-        // let mut e = world.spawn_empty();
-
-        // self.add_handle(ui_quad.string_id.clone(), e.id());
-
-        // e.insert((quad_transform, ui_quad));
+        e.insert((quad_transform, ui_quad));
     }
 
     pub fn on_change_component_state(
@@ -221,8 +188,6 @@ impl UIHandler {
                     parent_transform = transform.clone();
 
                     if let UIType::Container(container) = &ui.ui_type {
-                        parent_transform.translation.x += container.border.width;
-                        parent_transform.translation.y += container.border.width;
                         match container.width {
                             ScreenCoordinate::Pixels(value) => {
                                 parent_width = value;
@@ -248,6 +213,8 @@ impl UIHandler {
                     );
                 }
             }
+
+            //info!(transform.translation.y, parent_transform.translation.y);
             match &ui.ui_type {
                 UIType::Container(container) => {
                     let mut vector_of_quads_and_z = vec![];
@@ -413,7 +380,7 @@ impl UIHandler {
                     parent_transform.translation.x *= 2.0;
                     parent_transform.translation.y *= 2.0;
 
-                    let mut max_width = if text.max_width < parent_width {
+                    let max_width = if text.max_width < parent_width {
                         parent_transform.translation.x + text.max_width
                     } else {
                         parent_transform.translation.x + parent_width
@@ -426,6 +393,11 @@ impl UIHandler {
                     if let Some(font) = font {
                         // Unwrap safety: in order to generate the atlas the data has already been parsed successfully
                         let font_face = ttf_parser::Face::parse(&font.font_data, 0).unwrap();
+
+                        let units_per_em = font_face.units_per_em() as f32;
+
+                        // Conversion factor from font units to pixels
+                        let pixels_per_unit = transform.scale.x / units_per_em;
 
                         let question_mark_id = font_face
                             .glyph_index('?')
@@ -488,6 +460,17 @@ impl UIHandler {
                                 continue;
                             }
 
+                            // Convert x from font units to pixels using the units_to_pixels factor
+                            let x_pixels = x * pixels_per_unit;
+
+                            let max_width = max_width * fs_scale;
+
+                            // Add a check to wrap text if the current x position exceeds container width
+                            if x_pixels > max_width {
+                                x = 0f32;
+                                y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
+                            }
+
                             let glyph_id =
                                 font_face.glyph_index(character).unwrap_or(question_mark_id);
 
@@ -543,17 +526,6 @@ impl UIHandler {
                             // Position it accordingly
                             quad_rect.min += Vector2::new(x, y);
                             quad_rect.max += Vector2::new(x, y);
-
-                            // let max_width_g = max_width * fs_scale;
-                            // info!(
-                            //     "Max width: {}; quad max x: {} of '{}'",
-                            //     max_width_g, quad_rect.max.x, character
-                            // );
-
-                            // if quad_rect.max.x > max_width_g {
-                            //     x = 0f32;
-                            //     y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
-                            // }
 
                             // Pixel space to normalized device coordinates:
                             // ndc_x = ((pixel_x / screen_width) * 2) - 1
