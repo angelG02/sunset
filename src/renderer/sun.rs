@@ -824,13 +824,14 @@ impl App for Sun {
             let ui_changed = UIComponent {
                 id: uuid::Uuid::new_v4(),
                 string_id: "stats".to_string(),
+                parent_id: Some("test".to_string()),
                 ui_type: UIType::Text(text_changed),
                 visible: true,
             };
 
             let mut ui_changed_trans = TransformComponent::zero();
-            ui_changed_trans.scale.x += 150.0;
-            ui_changed_trans.scale.y += 150.0;
+            ui_changed_trans.scale.x += 75.0;
+            ui_changed_trans.scale.y += 75.0;
 
             let task = Box::new(move || {
                 vec![CommandEvent::SignalChange(ChangeComponentState::UI((

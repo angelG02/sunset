@@ -4,7 +4,7 @@ use bevy_ecs::{
     entity::Entity,
     query::{QueryFilter, With},
 };
-use cgmath::{Rotation3, Vector4};
+use cgmath::Rotation3;
 use tracing::{error, info, warn};
 use winit::{
     event::{ElementState, MouseScrollDelta},
@@ -26,13 +26,8 @@ use crate::{
         name_component::NameComponent,
     },
     prelude::{
-        camera_component::CamType,
-        resources::model::RenderModelDesc,
-        state,
-        sun::RenderFrameDesc,
-        transform_component::TransformComponent,
-        ui_component::RenderUIDesc,
-        ui_component::{BorderDesc, ContainerDesc, ScreenCoordinate, UIComponent, UIType},
+        camera_component::CamType, resources::model::RenderModelDesc, state, sun::RenderFrameDesc,
+        transform_component::TransformComponent, ui_component::RenderUIDesc,
     },
 };
 
@@ -241,6 +236,8 @@ impl App for Scene {
     fn init(&mut self, elp: EventLoopProxy<CommandEvent>) {
         self.proxy = Some(elp.clone());
 
+        self.ui_handler.init_ui(&mut self.world);
+
         let load_missing_tex = Command::new(
             "asset_server",
             CommandType::Get,
@@ -268,41 +265,6 @@ impl App for Scene {
             Some("add --name Camera3D --camera 3D 1.8 45.0 0 0 4 0.0001 1000".into()),
             None,
         );
-
-        //Manully spawn Quad UI element for test
-
-        let mut quad_transform = TransformComponent::zero();
-        quad_transform.translation.z = 0.0;
-
-        let ui_quad = UIComponent {
-            // Id uesd for creating & indexing into vertex/index buffers in renderer
-            id: uuid::Uuid::new_v4(),
-            // Id uesd for parenting and accessing through events
-            string_id: "test".to_string(),
-            // Define our UI container
-            ui_type: UIType::Container(ContainerDesc {
-                // Set width to 25% of the parent
-                width: ScreenCoordinate::Percentage(25),
-                // Set height to 100% of the parent
-                height: ScreenCoordinate::Percentage(100),
-                // Set color
-                color: Vector4::new(4.0 / 255.0, 229.0 / 255.0, 218.0 / 255.0, 1.0),
-                // Set border color and width
-                border: BorderDesc {
-                    color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
-                    width: 10.0,
-                },
-                ..Default::default()
-            }),
-            visible: true,
-        };
-
-        let mut e = self.world.spawn_empty();
-
-        self.ui_handler
-            .add_handle(ui_quad.string_id.clone(), e.id());
-
-        e.insert((quad_transform, ui_quad));
 
         self.commands.append(&mut vec![
             load_missing_tex,

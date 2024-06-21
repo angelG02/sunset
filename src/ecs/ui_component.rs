@@ -92,6 +92,8 @@ pub struct UIComponent {
     pub id: uuid::Uuid,
     /// Unique string identifier (used for ease of access by other systems)
     pub string_id: String,
+    /// Optional string id of parent container
+    pub parent_id: Option<String>,
     /// UI Data defined by its type
     pub ui_type: UIType,
     /// Should the UI element be sent to the renderer for redraw
