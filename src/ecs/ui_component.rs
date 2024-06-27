@@ -71,7 +71,7 @@ pub struct ContainerDesc {
 impl Default for ContainerDesc {
     fn default() -> Self {
         ContainerDesc {
-            color: Vector4::new(1.0, 1.0, 1.0, 1.0),
+            color: Vector4::new(0.0, 0.0, 0.0, 0.0),
             changed: true,
             border: BorderDesc {
                 width: 0.0,

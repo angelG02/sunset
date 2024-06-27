@@ -70,7 +70,7 @@ impl UIHandler {
 
         let mut quad_transform = TransformComponent::zero();
         quad_transform.translation.z = 1.0;
-        quad_transform.translation.y += 150.0;
+        quad_transform.translation.y += 50.0;
 
         let ui_quad = UIComponent {
             // Id uesd for creating & indexing into vertex/index buffers in renderer
@@ -83,11 +83,42 @@ impl UIHandler {
                 // Set width to 100% of the parent
                 width: ScreenCoordinate::Percentage(100),
                 // Set height to 50% of the parent
-                height: ScreenCoordinate::Percentage(50),
+                height: ScreenCoordinate::Pixels(100.0),
                 // Set color
                 color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
                 border: BorderDesc {
-                    color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
+                    color: Vector4::new(4.0 / 255.0, 204.0 / 255.0, 4.0 / 255.0, 1.0),
+                    width: 10.0,
+                },
+                ..Default::default()
+            }),
+            visible: true,
+        };
+
+        let mut e = world.spawn_empty();
+
+        self.add_handle(ui_quad.string_id.clone(), e.id());
+
+        e.insert((quad_transform, ui_quad));
+
+        let mut quad_transform = TransformComponent::zero();
+        quad_transform.translation.z = 1.0;
+        quad_transform.translation.y += 170.0;
+
+        let ui_quad = UIComponent {
+            // Id uesd for creating & indexing into vertex/index buffers in renderer
+            id: uuid::Uuid::new_v4(),
+            // Id uesd for parenting and accessing through events
+            string_id: "text-input".to_string(),
+            parent_id: Some("test".into()),
+            // Define our UI container
+            ui_type: UIType::Container(ContainerDesc {
+                // Set width to 100% of the parent
+                width: ScreenCoordinate::Percentage(100),
+                // Set height to 50% of the parent
+                height: ScreenCoordinate::Percentage(100),
+                border: BorderDesc {
+                    color: Vector4::new(4.0 / 255.0, 204.0 / 255.0, 4.0 / 255.0, 1.0),
                     width: 10.0,
                 },
                 ..Default::default()
@@ -169,8 +200,10 @@ impl UIHandler {
             let mut parent_width = self.window_container.width;
             let mut parent_height = self.window_container.height;
             let mut parent_transform = TransformComponent::zero();
+            let mut parent_border_width = 0f32;
 
             let mut parent = ui.parent_id.clone();
+            let mut depth = 0;
 
             // Iteratively get to the top-most parent and get its width and height
             // or calculate what percentage of the element's parent they take
@@ -179,15 +212,20 @@ impl UIHandler {
                     break;
                 }
 
+                depth += 1;
+
                 let parent_entity = self.id_map.get(parent.as_ref().unwrap());
                 if let Some(parent_entity) = parent_entity {
                     let ui = world.get::<UIComponent>(*parent_entity).unwrap();
                     let transform = world.get::<TransformComponent>(*parent_entity).unwrap();
 
                     parent = ui.parent_id.clone();
-                    parent_transform = transform.clone();
+                    parent_transform.translation += transform.translation;
 
                     if let UIType::Container(container) = &ui.ui_type {
+                        if depth == 1 {
+                            parent_border_width = container.border.width;
+                        }
                         match container.width {
                             ScreenCoordinate::Pixels(value) => {
                                 parent_width = value;
@@ -214,7 +252,6 @@ impl UIHandler {
                 }
             }
 
-            //info!(transform.translation.y, parent_transform.translation.y);
             match &ui.ui_type {
                 UIType::Container(container) => {
                     let mut vector_of_quads_and_z = vec![];
@@ -222,14 +259,20 @@ impl UIHandler {
                     let height = match container.height {
                         ScreenCoordinate::Pixels(value) => value,
                         ScreenCoordinate::Percentage(value) => {
-                            parent_height * value as f32 * 0.01 - container.border.width * 2.0
+                            parent_height * value as f32 * 0.01
+                                - container.border.width * 2.0
+                                - parent_border_width * 2.0
+                                - transform.translation.y
                         }
                     };
 
                     let width = match container.width {
                         ScreenCoordinate::Pixels(value) => value,
                         ScreenCoordinate::Percentage(value) => {
-                            parent_width * value as f32 * 0.01 - container.border.width * 2.0
+                            parent_width * value as f32 * 0.01
+                                - container.border.width * 2.0
+                                - parent_border_width * 2.0
+                                - transform.translation.x
                         }
                     };
 
@@ -249,11 +292,21 @@ impl UIHandler {
 
                     let mut quad_rect = bounds.clone();
 
-                    quad_rect.min.y -= (bounds.max.y - bounds.min.y) + container.border.width;
-                    quad_rect.max.y -= (bounds.max.y - bounds.min.y) + container.border.width;
+                    // offest down by whole height (anchor: top), the border amunt and the translation in y
+                    quad_rect.min.y -= (bounds.max.y - bounds.min.y)
+                        + container.border.width
+                        + parent_border_width
+                        + transform.translation.y;
+                    quad_rect.max.y -= (bounds.max.y - bounds.min.y)
+                        + container.border.width
+                        + parent_border_width
+                        + transform.translation.y;
 
-                    quad_rect.min.x += container.border.width;
-                    quad_rect.max.x += container.border.width;
+                    // offset right by border amount and translation in x
+                    quad_rect.min.x +=
+                        container.border.width + parent_border_width + transform.translation.x;
+                    quad_rect.max.x +=
+                        container.border.width + parent_border_width + transform.translation.x;
 
                     // Border is technically a bigger rectangle under our container
                     let border_rect = Rect {
@@ -377,14 +430,13 @@ impl UIHandler {
                     ui_quad_data_vec.push(data);
                 }
                 UIType::Text(text) => {
-                    parent_transform.translation.x *= 2.0;
-                    parent_transform.translation.y *= 2.0;
-
                     let max_width = if text.max_width < parent_width {
                         parent_transform.translation.x + text.max_width
                     } else {
                         parent_transform.translation.x + parent_width
                     };
+
+                    let max_height = parent_height;
 
                     let mut vertices = vec![];
 
@@ -464,11 +516,18 @@ impl UIHandler {
                             let x_pixels = x * pixels_per_unit;
 
                             let max_width = max_width * fs_scale;
+                            let max_height = -max_height * fs_scale;
 
                             // Add a check to wrap text if the current x position exceeds container width
                             if x_pixels > max_width {
                                 x = 0f32;
                                 y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
+                            }
+
+                            let y_pixels = y * pixels_per_unit;
+
+                            if y_pixels < max_height {
+                                break;
                             }
 
                             let glyph_id =
@@ -537,7 +596,8 @@ impl UIHandler {
                                         / self.window_container.width)
                                         * 2.0)
                                         + (((transform.translation.x
-                                            + parent_transform.translation.x)
+                                            + parent_transform.translation.x
+                                            + parent_border_width)
                                             / self.window_container.width)
                                             * 2.0))
                                         - 1.0),
@@ -545,7 +605,8 @@ impl UIHandler {
                                         / self.window_container.height)
                                         * 2.0)
                                         - (((transform.translation.y
-                                            + parent_transform.translation.y)
+                                            + parent_transform.translation.y
+                                            + parent_border_width)
                                             / self.window_container.height)
                                             * 2.0)
                                         + 2.0)
@@ -556,7 +617,8 @@ impl UIHandler {
                                         / self.window_container.width)
                                         * 2.0)
                                         + (((transform.translation.x
-                                            + parent_transform.translation.x)
+                                            + parent_transform.translation.x
+                                            + parent_border_width)
                                             / self.window_container.width)
                                             * 2.0))
                                         - 1.0),
@@ -564,7 +626,8 @@ impl UIHandler {
                                         / self.window_container.height)
                                         * 2.0)
                                         - (((transform.translation.y
-                                            + parent_transform.translation.y)
+                                            + parent_transform.translation.y
+                                            + parent_border_width)
                                             / self.window_container.height)
                                             * 2.0)
                                         + 2.0)
