@@ -1,23 +1,49 @@
 use std::collections::HashMap;
 
 use bevy_ecs::{entity::Entity, world::World};
-use cgmath::{Vector2, Vector4};
+use cgmath::{vec2, Vector2, Vector4};
 use tracing::{error, info};
+use winit::{
+    event::{ElementState, MouseButton, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 use crate::prelude::{
     primitive::Primitive,
     resources::{font::SunFont, rect::Rect},
+    text_component::TextDesc,
     transform_component::TransformComponent,
     ui_component::{BorderDesc, ContainerDesc, ScreenCoordinate, UIComponent, UIQuadData, UIType},
     window_component::WindowContainer,
     ChangeComponentState,
 };
 
-#[derive(Default)]
 pub struct UIHandler {
     pub id_map: HashMap<String, Entity>,
     pub window_container: WindowContainer,
     pub fonts: HashMap<String, SunFont>,
+
+    pub ui_bounds: HashMap<String, Rect<f32>>,
+
+    pub mouse_pos: Vector2<f32>,
+
+    pub temp_flag: bool,
+}
+
+impl Default for UIHandler {
+    fn default() -> Self {
+        Self {
+            id_map: HashMap::new(),
+            window_container: WindowContainer {
+                width: 0.0,
+                height: 0.0,
+            },
+            fonts: HashMap::new(),
+            ui_bounds: HashMap::new(),
+            mouse_pos: vec2(0.0, 0.0),
+            temp_flag: false,
+        }
+    }
 }
 
 impl UIHandler {
@@ -55,7 +81,39 @@ impl UIHandler {
                 // Set border color and width
                 border: BorderDesc {
                     color: Vector4::new(4.0 / 255.0, 4.0 / 255.0, 229.0 / 255.0, 1.0),
-                    width: 10.0,
+                    width: 5.0,
+                },
+                ..Default::default()
+            }),
+            visible: true,
+        };
+
+        let mut e = world.spawn_empty();
+
+        self.add_handle(ui_quad.string_id.clone(), e.id());
+
+        e.insert((quad_transform, ui_quad));
+
+        let mut quad_transform = TransformComponent::zero();
+        quad_transform.translation.z = 1.0;
+        quad_transform.translation.y += 100.0;
+
+        let ui_quad = UIComponent {
+            // Id uesd for creating & indexing into vertex/index buffers in renderer
+            id: uuid::Uuid::new_v4(),
+            // Id uesd for parenting and accessing through events
+            string_id: "test-child-1".to_string(),
+            parent_id: Some("test".into()),
+            // Define our UI container
+            ui_type: UIType::Container(ContainerDesc {
+                // Set width to 100% of the parent
+                width: ScreenCoordinate::Percentage(100),
+                height: ScreenCoordinate::Pixels(50.0),
+                // Set color
+                color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
+                border: BorderDesc {
+                    color: Vector4::new(4.0 / 255.0, 204.0 / 255.0, 4.0 / 255.0, 1.0),
+                    width: 5.0,
                 },
                 ..Default::default()
             }),
@@ -82,13 +140,12 @@ impl UIHandler {
             ui_type: UIType::Container(ContainerDesc {
                 // Set width to 100% of the parent
                 width: ScreenCoordinate::Percentage(100),
-                // Set height to 50% of the parent
-                height: ScreenCoordinate::Pixels(100.0),
+                height: ScreenCoordinate::Pixels(50.0),
                 // Set color
                 color: Vector4::new(200.0 / 255.0, 5.0 / 255.0, 218.0 / 255.0, 1.0),
                 border: BorderDesc {
                     color: Vector4::new(4.0 / 255.0, 204.0 / 255.0, 4.0 / 255.0, 1.0),
-                    width: 10.0,
+                    width: 5.0,
                 },
                 ..Default::default()
             }),
@@ -117,10 +174,38 @@ impl UIHandler {
                 width: ScreenCoordinate::Percentage(100),
                 // Set height to 50% of the parent
                 height: ScreenCoordinate::Percentage(100),
+                color: Vector4::new(1.0, 1.0, 1.0, 1.0),
                 border: BorderDesc {
                     color: Vector4::new(4.0 / 255.0, 204.0 / 255.0, 4.0 / 255.0, 1.0),
-                    width: 10.0,
+                    width: 5.0,
                 },
+                focused_color: Some(Vector4::new(0.6, 0.6, 0.6, 1.0)),
+                ..Default::default()
+            }),
+            visible: true,
+        };
+
+        let mut e = world.spawn_empty();
+
+        self.add_handle(ui_quad.string_id.clone(), e.id());
+
+        e.insert((quad_transform, ui_quad));
+
+        let mut quad_transform = TransformComponent::zero();
+        quad_transform.translation.z = 3.0;
+        quad_transform.translation.y += 5.0;
+        quad_transform.scale *= 25.0;
+
+        let ui_quad = UIComponent {
+            // Id uesd for creating & indexing into vertex/index buffers in renderer
+            id: uuid::Uuid::new_v4(),
+            // Id uesd for parenting and accessing through events
+            string_id: "text-input-text".to_string(),
+            parent_id: Some("text-input".into()),
+            // Define our UI container
+            ui_type: UIType::Text(TextDesc {
+                text: "Click here and start typing!".to_string(),
+                color: Vector4::new(1.0, 1.0, 1.0, 1.0),
                 ..Default::default()
             }),
             visible: true,
@@ -185,17 +270,87 @@ impl UIHandler {
         }
     }
 
+    pub fn gather_input(&mut self, window_event: &winit::event::WindowEvent, world: &mut World) {
+        match window_event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_pos.x = position.x as f32;
+                self.mouse_pos.y = position.y as f32;
+            }
+            WindowEvent::MouseInput { button, .. } => {
+                if let MouseButton::Left = button {
+                    let mut ui_from_scene = world.query::<&mut UIComponent>();
+
+                    for mut ui in ui_from_scene.iter_mut(world) {
+                        let id = ui.string_id.clone();
+                        if let UIType::Container(ref mut container) = &mut ui.ui_type {
+                            if let Some(bounds) = self.ui_bounds.get(&id) {
+                                if bounds.has_point(&self.mouse_pos) {
+                                    container.focused = true;
+                                } else {
+                                    container.focused = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                let mut ui_from_scene = world.query::<&mut UIComponent>();
+
+                for ui in ui_from_scene.iter(world) {
+                    let id = ui.string_id.clone();
+                    if &id == "text-input" {
+                        if let UIType::Container(ref container) = &ui.ui_type {
+                            if container.focused {
+                                self.temp_flag = true;
+                            } else {
+                                self.temp_flag = false;
+                            }
+                        }
+                    }
+                }
+
+                if self.temp_flag {
+                    for mut ui in ui_from_scene.iter_mut(world) {
+                        let id = ui.string_id.clone();
+                        if &id == "text-input-text" {
+                            if let UIType::Text(ref mut text) = &mut ui.ui_type {
+                                if let PhysicalKey::Code(code) = event.physical_key {
+                                    match code {
+                                        KeyCode::Backspace => {
+                                            if event.state == ElementState::Pressed {
+                                                text.text.pop();
+                                                return;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                if let Some(character) = &event.text {
+                                    if event.state == ElementState::Pressed {
+                                        text.text.extend(character.as_str().chars())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// TODO: Change check in tessellate
     ///
     /// Returns a tuple of Vec(UIQuadData), changed) and an index array
-    pub fn tessellate(&self, world: &mut World) -> (Vec<UIQuadData>, [u32; 6]) {
+    pub fn tessellate(&mut self, world: &mut World) -> (Vec<UIQuadData>, [u32; 6]) {
         // Gether ui elements and their transforms from the scene
-        let mut text_from_scene = world.query::<(&mut UIComponent, &TransformComponent)>();
+        let mut ui_from_scene = world.query::<(&mut UIComponent, &TransformComponent)>();
 
         let indices = [0u32, 1u32, 2u32, 0u32, 2u32, 3u32];
         let mut ui_quad_data_vec = vec![];
 
-        for (ui, transform) in text_from_scene.iter(&world) {
+        for (ui, transform) in ui_from_scene.iter(&world) {
             // Parent width and height
             let mut parent_width = self.window_container.width;
             let mut parent_height = self.window_container.height;
@@ -203,7 +358,6 @@ impl UIHandler {
             let mut parent_border_width = 0f32;
 
             let mut parent = ui.parent_id.clone();
-            let mut depth = 0;
 
             // Iteratively get to the top-most parent and get its width and height
             // or calculate what percentage of the element's parent they take
@@ -211,8 +365,6 @@ impl UIHandler {
                 if parent.is_none() {
                     break;
                 }
-
-                depth += 1;
 
                 let parent_entity = self.id_map.get(parent.as_ref().unwrap());
                 if let Some(parent_entity) = parent_entity {
@@ -223,9 +375,7 @@ impl UIHandler {
                     parent_transform.translation += transform.translation;
 
                     if let UIType::Container(container) = &ui.ui_type {
-                        if depth == 1 {
-                            parent_border_width = container.border.width;
-                        }
+                        parent_border_width += container.border.width;
                         match container.width {
                             ScreenCoordinate::Pixels(value) => {
                                 parent_width = value;
@@ -254,6 +404,7 @@ impl UIHandler {
 
             match &ui.ui_type {
                 UIType::Container(container) => {
+                    let mut color = container.color;
                     let mut vector_of_quads_and_z = vec![];
 
                     let height = match container.height {
@@ -290,6 +441,8 @@ impl UIHandler {
                         .into(),
                     };
 
+                    self.ui_bounds.insert(ui.string_id.clone(), bounds.clone());
+
                     let mut quad_rect = bounds.clone();
 
                     // offest down by whole height (anchor: top), the border amunt and the translation in y
@@ -307,6 +460,12 @@ impl UIHandler {
                         container.border.width + parent_border_width + transform.translation.x;
                     quad_rect.max.x +=
                         container.border.width + parent_border_width + transform.translation.x;
+
+                    if container.focused {
+                        if let Some(focused_color) = container.focused_color {
+                            color = focused_color;
+                        }
+                    }
 
                     // Border is technically a bigger rectangle under our container
                     let border_rect = Rect {
@@ -399,12 +558,8 @@ impl UIHandler {
                         max: [1.0, 1.0].into(),
                     };
 
-                    let quad = Primitive::new_quad(
-                        ndc_rect,
-                        uvs,
-                        container.color,
-                        transform.translation.z as u16,
-                    );
+                    let quad =
+                        Primitive::new_quad(ndc_rect, uvs, color, transform.translation.z as u16);
                     let quad_border = Primitive::new_quad(
                         ndc_rect_border,
                         uvs,
@@ -480,6 +635,8 @@ impl UIHandler {
 
                         for (index, character) in characters.enumerate() {
                             if character == '\r' {
+                                x = 0f32;
+                                y -= fs_scale * font_face.line_gap() as f32 + text.line_spacing;
                                 continue;
                             }
 
@@ -561,15 +718,19 @@ impl UIHandler {
                             // Anchor: Top-left corner
                             let mut quad_rect = Rect {
                                 min: Vector2::new(
-                                    transform.translation.x + parent_transform.translation.x,
-                                    transform.translation.y + parent_transform.translation.y,
+                                    transform.translation.x
+                                        + parent_transform.translation.x
+                                        + quad_plane_bounds.x_min as f32,
+                                    transform.translation.y
+                                        + parent_transform.translation.y
+                                        + quad_plane_bounds.y_min as f32,
                                 ),
                                 max: Vector2::new(
                                     transform.translation.x
-                                        + quad_plane_bounds.width() as f32
+                                        + quad_plane_bounds.x_max as f32
                                         + parent_transform.translation.x,
                                     transform.translation.y
-                                        + quad_plane_bounds.height() as f32
+                                        + quad_plane_bounds.y_max as f32
                                         + parent_transform.translation.y,
                                 ),
                             };

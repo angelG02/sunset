@@ -1,4 +1,4 @@
-use cgmath::{BaseNum, Zero};
+use cgmath::{BaseNum, Vector2, Zero};
 
 /// A rectangle defined by two points. There is no defined origin, so 0,0 could be anywhere
 /// (top-left, bottom-left, etc)
@@ -27,6 +27,17 @@ impl<T: BaseNum> Rect<T> {
 
     pub fn height(&self) -> T {
         self.max.y - self.min.y
+    }
+
+    pub fn has_point(&self, point: &Vector2<T>) -> bool {
+        if point.x > self.min.x
+            && point.x < self.max.x
+            && point.y > self.min.y
+            && point.y < self.max.y
+        {
+            return true;
+        }
+        false
     }
 }
 

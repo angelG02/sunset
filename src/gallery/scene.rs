@@ -3,13 +3,13 @@ use bevy_ecs::{
     bundle::Bundle,
     entity::Entity,
     query::{QueryFilter, With},
+    world::World,
 };
 use cgmath::Rotation3;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 use winit::{
     event::{ElementState, MouseScrollDelta},
     event_loop::EventLoopProxy,
-    keyboard::{KeyCode, PhysicalKey},
 };
 
 use crate::{
@@ -26,14 +26,19 @@ use crate::{
         name_component::NameComponent,
     },
     prelude::{
-        camera_component::CamType, resources::model::RenderModelDesc, state, sun::RenderFrameDesc,
-        transform_component::TransformComponent, ui_component::RenderUIDesc,
+        camera_component::CamType,
+        resources::model::RenderModelDesc,
+        state,
+        sun::RenderFrameDesc,
+        text_component::TextDesc,
+        transform_component::TransformComponent,
+        ui_component::{RenderUIDesc, UIComponent, UIType},
+        ChangeComponentState,
     },
 };
 
 use super::ui_handler::UIHandler;
 
-#[derive(Default)]
 pub struct Scene {
     pub world: bevy_ecs::world::World,
     pub commands: Vec<Command>,
@@ -51,6 +56,26 @@ pub struct Scene {
     rotation_speed: f32,
     obj_should_rotate: bool,
     mouse_delta_x: f32,
+
+    time: web_time::Instant,
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Scene {
+            world: World::new(),
+            commands: vec![],
+            proxy: None,
+            ui_handler: UIHandler::new(),
+            cam_speed: 0.0,
+            cam_should_move: false,
+            mouse_delta_y: 0.0,
+            rotation_speed: 0.0,
+            obj_should_rotate: false,
+            mouse_delta_x: 0.0,
+            time: web_time::Instant::now(),
+        }
+    }
 }
 
 impl Scene {
@@ -279,6 +304,39 @@ impl App for Scene {
     }
 
     fn update(&mut self, _delta_time: f32) -> Vec<Command> {
+        let scene_time = self.time.elapsed().as_secs_f32();
+        if scene_time > 0.01 {
+            self.time = web_time::Instant::now();
+            let text_changed = TextDesc {
+                changed: true,
+                text: format!("Camera speed: {}", self.cam_speed),
+                ..Default::default()
+            };
+
+            let ui_changed = UIComponent {
+                id: uuid::Uuid::new_v4(),
+                string_id: "cam-speed".to_string(),
+                parent_id: Some("test-child-1".to_string()),
+                ui_type: UIType::Text(text_changed),
+                visible: true,
+            };
+
+            let mut ui_changed_trans = TransformComponent::zero();
+            ui_changed_trans.scale.x += 25.0;
+            ui_changed_trans.scale.y += 25.0;
+            ui_changed_trans.translation.y = 20.0;
+
+            let task = Box::new(move || {
+                vec![CommandEvent::SignalChange(ChangeComponentState::UI((
+                    ui_changed.clone(),
+                    Some(ui_changed_trans),
+                )))]
+            });
+
+            let cmd = Command::new("sun", CommandType::Other, None, Some(task));
+            self.commands.push(cmd);
+        }
+
         if initialized() {
             self.world.clear_trackers();
             self.commands.drain(..).collect()
@@ -305,8 +363,9 @@ impl App for Scene {
         &mut self,
         event: &winit::event::WindowEvent,
         window_id: winit::window::WindowId,
-        delta_time: f32,
+        _delta_time: f32,
     ) {
+        self.ui_handler.gather_input(&event, &mut self.world);
         match event {
             winit::event::WindowEvent::RedrawRequested => {
                 // Gather models and their transfroms from the scene
@@ -369,26 +428,6 @@ impl App for Scene {
                     }
                 }
             }
-
-            winit::event::WindowEvent::KeyboardInput {
-                device_id: _,
-                event,
-                is_synthetic: _,
-            } => {
-                if event.physical_key == PhysicalKey::Code(KeyCode::KeyE) {
-                    let mut q = self.world.query::<&mut TransformComponent>();
-                    for mut transform in q.iter_mut(&mut self.world) {
-                        transform.translation.y -= self.cam_speed * delta_time * 50.0;
-                        transform.dirty = true;
-                    }
-                } else if event.physical_key == PhysicalKey::Code(KeyCode::KeyQ) {
-                    let mut q = self.world.query::<&mut TransformComponent>();
-                    for mut transform in q.iter_mut(&mut self.world) {
-                        transform.translation.y += self.cam_speed * delta_time * 50.0;
-                        transform.dirty = true;
-                    }
-                }
-            }
             _ => {}
         }
     }
@@ -419,23 +458,20 @@ impl App for Scene {
                 self.mouse_delta_y = delta.1 as f32;
                 self.mouse_delta_x = delta.0 as f32;
             }
-            winit::event::DeviceEvent::MouseWheel { delta } => {
-                match delta {
-                    MouseScrollDelta::LineDelta(_x, y) => {
-                        self.cam_speed += y;
-                        if self.cam_speed < 0.0 {
-                            self.cam_speed = 0.0;
-                        }
-                    }
-                    MouseScrollDelta::PixelDelta(delta) => {
-                        self.cam_speed += delta.y as f32;
-                        if self.cam_speed < 0.0 {
-                            self.cam_speed = 0.0;
-                        }
+            winit::event::DeviceEvent::MouseWheel { delta } => match delta {
+                MouseScrollDelta::LineDelta(_x, y) => {
+                    self.cam_speed += y;
+                    if self.cam_speed < 0.0 {
+                        self.cam_speed = 0.0;
                     }
                 }
-                info!("Cam speed set to: {}", self.cam_speed);
-            }
+                MouseScrollDelta::PixelDelta(delta) => {
+                    self.cam_speed += delta.y as f32;
+                    if self.cam_speed < 0.0 {
+                        self.cam_speed = 0.0;
+                    }
+                }
+            },
             _ => {}
         }
 

@@ -830,10 +830,9 @@ impl App for Sun {
             };
 
             let mut ui_changed_trans = TransformComponent::zero();
-            ui_changed_trans.scale.x += 50.0;
-            ui_changed_trans.scale.y += 50.0;
-            ui_changed_trans.translation.y += 10.0;
-            ui_changed_trans.translation.x += 10.0;
+            ui_changed_trans.scale.x += 25.0;
+            ui_changed_trans.scale.y += 25.0;
+            ui_changed_trans.translation.y = 20.0;
 
             let task = Box::new(move || {
                 vec![CommandEvent::SignalChange(ChangeComponentState::UI((

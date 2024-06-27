@@ -66,6 +66,8 @@ pub struct ContainerDesc {
     pub border: BorderDesc,
     // Indicates changed state and to regen buffers
     pub changed: bool,
+    pub focused_color: Option<Vector4<f32>>,
+    pub focused: bool,
 }
 
 impl Default for ContainerDesc {
@@ -79,6 +81,8 @@ impl Default for ContainerDesc {
             },
             width: ScreenCoordinate::Percentage(0),
             height: ScreenCoordinate::Percentage(0),
+            focused_color: None,
+            focused: false,
         }
     }
 }
